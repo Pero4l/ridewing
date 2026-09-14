@@ -1,0 +1,85 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+:root {
+  --background: #f6f7f9;
+  --foreground: #18181b;
+  color-scheme: light;
+}
+
+.dark {
+  --background: #0b0b0e;
+  --foreground: #f4f4f5;
+  color-scheme: dark;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background:
+    radial-gradient(800px 300px at 50% -10%, rgb(16 185 129 / 0.06), transparent 70%),
+    linear-gradient(180deg, #f7f8fa 0%, #eef1f4 100%);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  letter-spacing: -0.011em;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.dark body {
+  background:
+    radial-gradient(800px 300px at 50% -10%, rgb(16 185 129 / 0.08), transparent 70%),
+    linear-gradient(180deg, #0c0c10 0%, #0a0a0d 100%);
+}
+
+/* Form controls should follow the active theme, not the OS default */
+input,
+select,
+textarea {
+  color-scheme: inherit;
+}
+
+::selection {
+  background: rgb(16 185 129 / 0.22);
+}
+
+/* Mobile-safe tap targets and no-ugly-scrollbar chrome */
+input,
+textarea,
+select,
+button {
+  font: inherit;
+}
+
+/* Subtle, brand-tinted scrollbar on platforms that support it */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(212 212 216 / 0.8) transparent;
+}
+
+@media (pointer: coarse) {
+  * {
+    overscroll-behavior-y: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

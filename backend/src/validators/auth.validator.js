@@ -1,0 +1,51 @@
+'use strict';
+
+const { z } = require('zod');
+const {
+  username,
+  email,
+  phone,
+  password,
+  displayName,
+  bikeInfo,
+} = require('./common.validator');
+
+/** Registration requires a username, a password, and at least one contact method. */
+const register = z
+  .object({
+    username,
+    email: email.optional(),
+    phone: phone.optional(),
+    password,
+    displayName: displayName.optional(),
+    bio: z.string().trim().max(500).optional(),
+    bikeInfo: bikeInfo.optional(),
+  })
+  .strict()
+  .refine((value) => Boolean(value.email || value.phone), {
+    message: 'Provide an email address or a phone number',
+    path: ['email'],
+  });
+
+/** One field for username, email or phone — the server works out which it is. */
+const login = z
+  .object({
+    identifier: z.string().trim().min(3, 'Enter your username, email or phone').max(255),
+    password: z.string().min(1, 'Password is required').max(200),
+  })
+  .strict();
+
+const changePassword = z
+  .object({
+    currentPassword: z.string().min(1, 'Current password is required').max(200),
+    newPassword: password,
+  })
+  .strict();
+
+const verifyEmail = z
+  .object({
+    token: z.string().trim().min(20, 'Verification token is required').max(200),
+  })
+  .strict();
+
+module.exports = { register, login, changePassword, verifyEmail };

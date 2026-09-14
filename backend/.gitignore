@@ -1,0 +1,21 @@
+# Dependencies
+node_modules/
+
+# Secrets — real credentials must never be committed.
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Testing
+coverage/
+
+# OS / editor
+.DS_Store
+*.swp
+.env.example
