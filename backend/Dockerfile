@@ -6,7 +6,7 @@
 # Build with:  docker build -t ridewing-api --target runtime .
 # Migrations:  docker build -t ridewing-api-migrate --target migrate .
 
-FROM node:22-alpine AS deps
+FROM node:22-slim AS deps
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
