@@ -2,6 +2,7 @@
 
 import { Suspense, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { useSession } from "@/lib/auth";
 import { ApiError } from "@/lib/api";
 import { AuthLink, AuthShell } from "@/components/auth-shell";
@@ -84,6 +85,12 @@ function LoginInner() {
             required
           />
         </Field>
+
+        <div className="flex justify-end">
+          <Link href="/forgot-password" className="text-xs font-medium text-emerald-700 transition-colors hover:text-emerald-900 dark:text-emerald-400 dark:hover:text-emerald-300">
+            Forgot password?
+          </Link>
+        </div>
 
         {error && (
           <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">

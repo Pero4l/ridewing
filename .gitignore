@@ -1,0 +1,6 @@
+# Production runtime data — never commit.
+deploy/.env
+deploy/data/
+deploy/backups/
+deploy/runtime/
+deploy

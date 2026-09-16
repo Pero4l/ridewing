@@ -4,7 +4,7 @@ const express = require('express');
 
 const validate = require('../middleware/validate');
 const { requireAuth } = require('../middleware/auth');
-const { loginLimiter, registerLimiter, refreshLimiter, writeLimiter } = require('../middleware/rateLimit');
+const { loginLimiter, registerLimiter, refreshLimiter, passwordResetLimiter, writeLimiter } = require('../middleware/rateLimit');
 const authController = require('../controllers/auth.controller');
 const emailVerificationController = require('../controllers/emailVerification.controller');
 const authValidator = require('../validators/auth.validator');
@@ -50,6 +50,21 @@ router.post(
   writeLimiter,
   validate({ body: authValidator.verifyEmail }),
   emailVerificationController.verifyEmail,
+);
+
+// Pre-sign-in routes — no bearer token.
+router.post(
+  '/forgot-password',
+  passwordResetLimiter,
+  validate({ body: authValidator.forgotPassword }),
+  authController.forgotPassword,
+);
+
+router.post(
+  '/reset-password',
+  passwordResetLimiter,
+  validate({ body: authValidator.resetPassword }),
+  authController.resetPassword,
 );
 
 module.exports = router;

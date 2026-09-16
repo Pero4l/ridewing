@@ -65,6 +65,11 @@ export default function RegisterPage() {
       </div>
 
       <form onSubmit={onSubmit} className="space-y-4">
+
+      <Field label="Full name">
+          <Input value={form.displayName} onChange={set("displayName")} placeholder="Alex Rider" maxLength={60} required />
+        </Field>
+        
         <Field label="Username" hint="Lowercase letters, numbers and underscores. 3–30 characters.">
           <Input
             autoFocus
@@ -77,9 +82,7 @@ export default function RegisterPage() {
             maxLength={30}
           />
         </Field>
-        <Field label="Display name">
-          <Input value={form.displayName} onChange={set("displayName")} placeholder="PTB" maxLength={60} />
-        </Field>
+        
 
         <div className="grid grid-cols-2 gap-3">
           <Field label="Email" error={!form.email.trim() && !form.phone.trim() ? "Add an email or phone" : undefined}>

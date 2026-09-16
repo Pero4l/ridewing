@@ -49,6 +49,17 @@ const refreshLimiter = rateLimit({
   handler: handler('Too many token refreshes. Please slow down.'),
 });
 
+const passwordResetLimiter = rateLimit({
+  ...base,
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  keyGenerator: (req) => {
+    const target = String(req.body?.email || req.body?.token || '').toLowerCase().slice(0, 120);
+    return `${req.ip}|${target}`;
+  },
+  handler: handler('Too many password reset requests. Please try again later.'),
+});
+
 /** Guards HTTP message sends; the socket path has its own token bucket. */
 const messageLimiter = rateLimit({
   ...base,
@@ -77,6 +88,7 @@ module.exports = {
   loginLimiter,
   registerLimiter,
   refreshLimiter,
+  passwordResetLimiter,
   messageLimiter,
   writeLimiter,
   globalLimiter,

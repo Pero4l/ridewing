@@ -67,9 +67,6 @@ const schema = z
     // WebRTC ICE servers. TURN credentials are served to authenticated clients
     // only — they are never baked into the frontend bundle.
     STUN_URLS: z.string().default('stun:stun.l.google.com:19302'),
-    TURN_URLS: z.string().optional(),
-    TURN_USERNAME: z.string().optional(),
-    TURN_CREDENTIAL: z.string().optional(),
 
     // Cloudinary — media uploads. All three are required to enable uploads.
     CLOUDINARY_CLOUD_NAME: optionalString(),
@@ -77,12 +74,22 @@ const schema = z
     CLOUDINARY_API_SECRET: optionalString(),
     CLOUDINARY_UPLOAD_FOLDER: z.string().default('ridewing'),
 
+    // WebRTC TURN relays. Either static long-lived credentials (self-hosted
+    // coturn / Metered) or short-lived Cloudflare Realtime TURN credentials
+    // minted server-side (Settings → Realtime → TURN).
+    TURN_URLS: z.string().optional(),
+    TURN_USERNAME: z.string().optional(),
+    TURN_CREDENTIAL: z.string().optional(),
+    CLOUDFLARE_TURN_KEY_ID: optionalString(),
+    CLOUDFLARE_TURN_API_TOKEN: optionalString(),
+
     // Brevo transactional email + the public frontend URL used in email links.
     BREVO_API_KEY: optionalString(),
     BREVO_SENDER_EMAIL: optionalString(),
     BREVO_SENDER_NAME: z.string().min(1).default('RideWing'),
     FRONTEND_URL: z.string().url().default('http://localhost:3000'),
     EMAIL_VERIFICATION_TOKEN_TTL_HOURS: z.coerce.number().int().positive().max(72).default(24),
+    PASSWORD_RESET_TOKEN_TTL_HOURS: z.coerce.number().int().positive().max(72).default(1),
 
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   })
@@ -168,7 +175,17 @@ const env = {
     maxRideParticipants: raw.MAX_RIDE_PARTICIPANTS,
   },
 
-  webrtc: { iceServers },
+  webrtc: {
+    iceServers,
+    turnUrls: raw.TURN_URLS ? csv(raw.TURN_URLS) : [],
+    turnUsername: raw.TURN_USERNAME,
+    turnCredential: raw.TURN_CREDENTIAL,
+  },
+
+  cloudflare: {
+    keyId: raw.CLOUDFLARE_TURN_KEY_ID,
+    apiToken: raw.CLOUDFLARE_TURN_API_TOKEN,
+  },
 
   cloudinary: {
     cloudName: raw.CLOUDINARY_CLOUD_NAME,
@@ -184,6 +201,7 @@ const env = {
     senderName: raw.BREVO_SENDER_NAME,
     enabled: Boolean(raw.BREVO_API_KEY && raw.BREVO_SENDER_EMAIL),
     verificationTokenTtlHours: raw.EMAIL_VERIFICATION_TOKEN_TTL_HOURS,
+    passwordResetTokenTtlHours: raw.PASSWORD_RESET_TOKEN_TTL_HOURS,
   },
 
   frontendUrl: raw.FRONTEND_URL,

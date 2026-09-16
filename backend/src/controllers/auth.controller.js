@@ -11,6 +11,7 @@
 const env = require('../config/env');
 const asyncHandler = require('../utils/asyncHandler');
 const authService = require('../services/auth.service');
+const passwordResetService = require('../services/passwordReset.service');
 
 const REFRESH_COOKIE = 'rw_refresh';
 const REFRESH_PATH = '/api/auth';
@@ -80,4 +81,12 @@ const changePassword = asyncHandler(async (req, res) => {
   res.json({ message: 'Password updated. Please sign in again.' });
 });
 
-module.exports = { register, login, refresh, logout, me, changePassword, REFRESH_COOKIE };
+const forgotPassword = asyncHandler(async (req, res) => {
+  res.json(await passwordResetService.requestReset(req.body));
+});
+
+const resetPassword = asyncHandler(async (req, res) => {
+  res.json(await passwordResetService.resetPassword(req.body));
+});
+
+module.exports = { register, login, refresh, logout, me, changePassword, forgotPassword, resetPassword, REFRESH_COOKIE };

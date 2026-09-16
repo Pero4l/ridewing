@@ -170,6 +170,7 @@ export type Post = {
   shareCount: number;
   viewerLiked: boolean;
   editedAt: string | null;
+  mediaEditableUntil: string;
   createdAt: string;
   user: PublicUser | null;
 };

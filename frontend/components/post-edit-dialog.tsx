@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { api, ApiError } from "@/lib/api";
 import { useToast } from "@/components/toast";
 import { MediaPicker, type PickedMedia } from "@/components/media-upload";
@@ -31,6 +31,14 @@ export function PostEditDialog({
   const [content, setContent] = useState(post.content);
   const [media, setMedia] = useState<PickedMedia[]>(() => toPicked(post.media));
   const [saving, setSaving] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const tick = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(tick);
+  }, []);
+
+  const mediaEditable = now < new Date(post.mediaEditableUntil).getTime();
 
   function canSave() {
     return content.trim().length > 0 || media.length > 0;
@@ -83,7 +91,17 @@ export function PostEditDialog({
         />
 
         <div className="mt-3">
-          <MediaPicker value={media} onChange={setMedia} disabled={saving} onError={(message) => toast.error(message)} />
+          <MediaPicker
+            value={media}
+            onChange={setMedia}
+            disabled={saving || !mediaEditable}
+            onError={(message) => toast.error(message)}
+          />
+          {!mediaEditable && (
+            <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
+              Photos and videos are locked after 10 minutes. You can still edit the text.
+            </p>
+          )}
         </div>
 
         <div className="mt-4 flex items-center justify-end gap-2">

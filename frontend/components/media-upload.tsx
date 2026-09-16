@@ -157,6 +157,7 @@ export function MediaPicker({
   }
 
   function remove(entry: PickedMedia) {
+    if (disabled) return;
     onChange(value.filter((m) => m.mediaId !== entry.mediaId));
   }
 

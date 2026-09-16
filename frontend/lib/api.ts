@@ -6,6 +6,9 @@ export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000
 
 let accessToken: string | null = null;
 
+/** In-flight refresh — concurrent 401s share one exchange instead of racing. */
+let refreshPromise: Promise<boolean> | null = null;
+
 export function setAccessToken(token: string | null) {
   accessToken = token;
 }
@@ -56,11 +59,26 @@ async function request<T>(path: string, { method = "GET", body, skipAuth = false
   });
 
   if (response.status === 401 && accessToken && !skipAuth && path !== "/api/auth/refresh") {
-    const refetched = await tryRefresh();
+    const refetched = await refreshLock();
     if (refetched) return request<T>(path, { method, body, skipAuth });
   }
 
   return parseResponse<T>(response);
+}
+
+/**
+ * Serializes refresh calls: a burst of 401s (parallel page-load requests on an
+ * expired token) all await the same exchange. Without this, each one presents
+ * the same cookie and the backend's rotation logic treats the second as a leaked
+ * token, revoking the whole session family.
+ */
+function refreshLock(): Promise<boolean> {
+  if (!refreshPromise) {
+    refreshPromise = tryRefresh().finally(() => {
+      refreshPromise = null;
+    });
+  }
+  return refreshPromise;
 }
 
 async function parseResponse<T>(response: Response): Promise<T> {

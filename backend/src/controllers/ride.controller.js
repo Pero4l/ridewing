@@ -1,8 +1,8 @@
 'use strict';
 
-const env = require('../config/env');
 const asyncHandler = require('../utils/asyncHandler');
 const rideService = require('../services/ride.service');
+const turnService = require('../services/turn.service');
 const { emitToRide } = require('../sockets/emit');
 
 const create = asyncHandler(async (req, res) => {
@@ -58,10 +58,11 @@ const setVoiceMode = asyncHandler(async (req, res) => {
  * ICE server configuration for the browser.
  *
  * Served from an authenticated endpoint rather than a public build-time variable,
- * so TURN credentials never sit in the frontend bundle.
+ * so TURN credentials never sit in the frontend bundle. Cloudflare TURN keys are
+ * minted server-side when configured.
  */
 const iceServers = asyncHandler(async (req, res) => {
-  res.json({ iceServers: env.webrtc.iceServers });
+  res.json({ iceServers: await turnService.getIceServers() });
 });
 
 module.exports = {

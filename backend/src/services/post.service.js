@@ -25,6 +25,18 @@ const notificationService = require('./notification.service');
 
 const MAX_MEDIA_ITEMS = 9;
 
+/** Photos and videos can only be changed shortly after posting; text is always editable. */
+const MEDIA_EDIT_WINDOW_MS = 10 * 60 * 1000;
+
+function mediaSignature(media) {
+  return (media ?? []).map((item) => `${item.type}:${item.url}:${item.width ?? ''}:${item.height ?? ''}`).join('|');
+}
+
+/** Photos and videos are editable only within the short window after posting. */
+function canEditMedia(createdAt, now = Date.now()) {
+  return now - new Date(createdAt).getTime() < MEDIA_EDIT_WINDOW_MS;
+}
+
 /** Validates client-supplied media into a normalized shape. */
 function sanitizeMedia(rawMedia) {
   if (rawMedia === undefined || rawMedia === null) return [];
@@ -97,8 +109,18 @@ async function update(postId, userId, { content, media: rawMedia }) {
     throw ApiError.badRequest('A post cannot exceed 2000 characters');
   }
 
+  const mediaEditable = canEditMedia(post.createdAt);
+  const mediaChanged = mediaSignature(post.media) !== mediaSignature(media);
+  if (mediaChanged && !mediaEditable) {
+    throw ApiError.badRequest(
+      'Photos and videos can only be changed within 10 minutes of posting. You can still edit the text.',
+    );
+  }
+
   post.content = contentText;
-  post.media = media;
+  if (mediaEditable) {
+    post.media = media;
+  }
   post.editedAt = new Date();
   await post.save();
 
@@ -281,9 +303,10 @@ function toJSON(post, { viewerLiked }) {
     shareCount: post.shareCount,
     viewerLiked,
     editedAt: post.editedAt ? post.editedAt.toISOString() : null,
+    mediaEditableUntil: new Date(post.createdAt.getTime() + MEDIA_EDIT_WINDOW_MS).toISOString(),
     createdAt: post.createdAt.toISOString(),
     user: post.user ? post.user.toPublicJSON() : null,
   };
 }
 
-module.exports = { create, update, feed, getPost, like, unlike, listComments, addComment, share, remove };
+module.exports = { create, update, feed, getPost, like, unlike, listComments, addComment, share, remove, canEditMedia };

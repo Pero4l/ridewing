@@ -48,4 +48,18 @@ const verifyEmail = z
   })
   .strict();
 
-module.exports = { register, login, changePassword, verifyEmail };
+/** Forgot-password runs before sign-in; only the contact email is accepted. */
+const forgotPassword = z
+  .object({
+    email,
+  })
+  .strict();
+
+const resetPassword = z
+  .object({
+    token: z.string().trim().min(20, 'Reset token is required').max(200),
+    password,
+  })
+  .strict();
+
+module.exports = { register, login, changePassword, verifyEmail, forgotPassword, resetPassword };
