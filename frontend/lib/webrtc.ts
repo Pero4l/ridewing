@@ -55,6 +55,7 @@ export class VoiceRoom {
   private roomPeers: Record<string, RoomPeer> = {};
   private disposed = false;
   private signalListeners: Array<{ event: string; handler: (payload: never) => void }> = [];
+  private unlockRegistered = false;
 
   constructor(
     rideId: string,
@@ -133,6 +134,37 @@ export class VoiceRoom {
 
   get localAudioReady() {
     return Boolean(this.localStream);
+  }
+
+  /**
+   * iOS Safari refuses Audio.play() outside a user gesture. Try to play
+   * immediately; if the browser blocks it, register a one-time unlock that
+   * resumes every peer's audio on the next tap.
+   */
+  private tryPlay(audio: HTMLAudioElement) {
+    const attempt = audio.play();
+    if (attempt && typeof attempt.catch === "function") {
+      attempt.catch(() => this.queueUnlock());
+      return;
+    }
+    this.queueUnlock();
+  }
+
+  private queueUnlock() {
+    if (this.unlockRegistered) return;
+    this.unlockRegistered = true;
+    const unlock = () => {
+      document.removeEventListener("pointerdown", unlock);
+      document.removeEventListener("touchend", unlock);
+      for (const roomPeer of Object.values(this.roomPeers)) {
+        if (roomPeer.audio) {
+          const p = roomPeer.audio.play();
+          if (p && typeof p.catch === "function") p.catch(() => {});
+        }
+      }
+    };
+    document.addEventListener("pointerdown", unlock);
+    document.addEventListener("touchend", unlock);
   }
 
   // ── lifecycle ────────────────────────────────────────────────────────────
@@ -266,10 +298,12 @@ export class VoiceRoom {
       if (!roomPeer.audio) {
         const audio = new Audio();
         audio.autoplay = true;
+        audio.volume = 1;
         roomPeer.audio = audio;
       }
       const stream = event.streams[0] ?? new MediaStream([event.track]);
       roomPeer.audio.srcObject = stream;
+      void this.tryPlay(roomPeer.audio);
       this.publish();
     };
 

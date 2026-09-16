@@ -21,6 +21,11 @@ function refreshCookieOptions() {
     httpOnly: true,
     secure: env.cookies.secure,
     sameSite: env.cookies.sameSite,
+    // Third-party context (frontend on a different site than this API): with
+    // SameSite=None the cookie must be CHIPS-partitioned to survive the
+    // third-party cookie phase-out. Partitioned keeps it scoped to the top-level
+    // site that created it, which is exactly the app->api pair.
+    partitioned: true,
     domain: env.cookies.domain,
     // Scoped to the auth routes: the cookie is not attached to every API call.
     path: REFRESH_PATH,

@@ -18,6 +18,25 @@ const ApiError = require('../utils/ApiError');
 const CF_LIFETIME_SECONDS = 24 * 60 * 60; // 24 hours, well under the 48h max
 const REFRESH_MARGIN_SECONDS = 60 * 60; // mint 1h before expiry
 
+// Served URL subset. More than a handful of STUN/TURN servers slows ICE
+// candidate gathering (Chrome warns above five) — and on mobile the shortest
+// list that still covers restrictive networks wins. UDP + TLS-on-443 are the
+// two paths that matter.
+const PREFERRED_URLS = new Set([
+  'stun:stun.cloudflare.com:3478',
+  'turn:turn.cloudflare.com:3478?transport=udp',
+  'turns:turn.cloudflare.com:443?transport=tcp',
+]);
+
+function curate(iceServers) {
+  const curated = [];
+  for (const server of iceServers) {
+    const urls = (server.urls || []).filter((url) => PREFERRED_URLS.has(url));
+    if (urls.length) curated.push({ ...server, urls });
+  }
+  return curated.length ? curated : iceServers;
+}
+
 let cached = null; // { iceServers, expiresAt }
 
 function cfEnabled() {
@@ -73,7 +92,7 @@ async function getIceServers() {
     const nowSeconds = Math.floor(Date.now() / 1000);
     if (!cached || nowSeconds + REFRESH_MARGIN_SECONDS >= cached.expiresAt) {
       try {
-        const iceServers = await fetchCloudflareIceServers();
+        const iceServers = curate(await fetchCloudflareIceServers());
         cached = { iceServers, expiresAt: nowSeconds + CF_LIFETIME_SECONDS };
       } catch (error) {
         logger.warn({ err: error.message }, 'Falling back to static ICE servers after Cloudflare failure');
