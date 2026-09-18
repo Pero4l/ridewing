@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "@/lib/api";
+import { useSession } from "@/lib/auth";
 import { onSocketEvent } from "@/lib/socket";
 
 type NotificationsContextValue = {
@@ -14,13 +15,16 @@ type NotificationsContextValue = {
 const NotificationsContext = createContext<NotificationsContextValue | null>(null);
 
 /**
- * Keeps the unread notification and message counts fresh: fetched once,
- * re-synced on live pushes, on tab focus, and whenever a message lands.
+ * Keeps the unread notification and message counts fresh: fetched once the
+ * rider is authed (the boot restore holds the token), re-synced on live pushes,
+ * on tab focus, and whenever a message lands. Counts are only fetched while
+ * authed — a guest has no Bearer token, so firing these early would 401 on
+ * every page load.
  */
 export function NotificationsProvider({ children }: { children: ReactNode }) {
+  const { status } = useSession();
   const [unreadCount, setUnreadCount] = useState(0);
   const [messageUnread, setMessageUnread] = useState(0);
-  const mountedRef = useRef(false);
   const messageRefreshQueuedRef = useRef(false);
 
   const refresh = useCallback(async () => {
@@ -52,17 +56,21 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   }, [refreshMessages]);
 
   useEffect(() => {
-    if (mountedRef.current) return;
-    mountedRef.current = true;
-    refresh();
-    void refreshMessages();
+    const authed = status === "authed";
+    // Only fetch counts once the boot restore has put the token in memory.
+    if (authed) {
+      queueMicrotask(() => {
+        refresh();
+        void refreshMessages();
+      });
+    }
 
     const offNotification = onSocketEvent<{ id: string }>("notification:new", () => {
       setUnreadCount((count) => count + 1);
     });
     const offMessage = onSocketEvent("message:new", () => queueMessageRefresh());
     const onVisible = () => {
-      if (document.visibilityState === "visible") {
+      if (authed && document.visibilityState === "visible") {
         refresh();
         void refreshMessages();
       }
@@ -73,7 +81,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       offMessage();
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [refresh, refreshMessages, queueMessageRefresh]);
+  }, [status, refresh, refreshMessages, queueMessageRefresh]);
 
   return (
     <NotificationsContext.Provider value={{ unreadCount, messageUnread, refresh, refreshMessages }}>

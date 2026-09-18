@@ -69,6 +69,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         return;
       }
 
+      // A reload within the same tab keeps the persisted access token, so we
+      // can restore instantly without waiting on the server. The cookie refresh
+      // runs in the background to rotate the token; it only drops the session
+      // when the server actively rejects it (a cold backend never bounces us).
+      if (getAccessToken()) {
+        setStatus("authed");
+        void refreshSession();
+        return;
+      }
+
       const attempt = async (): Promise<boolean> => {
         try {
           return await refreshSession();

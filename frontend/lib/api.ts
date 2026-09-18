@@ -4,10 +4,33 @@ import type { ApiErrorBody, ConnectedUser } from "./types";
 
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
-let accessToken: string | null = null;
+// The access token also lives in sessionStorage (this tab only), so a reload
+// restores it instantly instead of bouncing through the cross-site cookie
+// round-trip. The HttpOnly refresh cookie stays the source of truth for
+// freshness — refresh rotates the token in the background; a genuine rejection
+// clears the stored copy.
+const ACCESS_SESSION_KEY = "ridewing:access-token";
+
+function readStoredAccessToken(): string | null {
+  try {
+    if (typeof window !== "undefined") return window.sessionStorage.getItem(ACCESS_SESSION_KEY);
+  } catch {
+    // Storage unavailable — treat as signed out.
+  }
+  return null;
+}
+
+let accessToken: string | null = readStoredAccessToken();
 
 export function setAccessToken(token: string | null) {
   accessToken = token;
+  try {
+    if (typeof window === "undefined") return;
+    if (token) window.sessionStorage.setItem(ACCESS_SESSION_KEY, token);
+    else window.sessionStorage.removeItem(ACCESS_SESSION_KEY);
+  } catch {
+    // Best-effort persistence.
+  }
 }
 
 export function getAccessToken() {
