@@ -5,8 +5,11 @@
  *
  * Access tokens are short-lived JWTs held in memory by the client. Refresh tokens
  * are opaque 48-byte random strings delivered in an httpOnly cookie; only their
- * SHA-256 hash is stored, and each use rotates them. Reuse of an already-rotated
- * token is treated as theft and revokes the entire family.
+ * SHA-256 hash is stored, and each use rotates them. Presenting an already-rotated
+ * token normally means it leaked — except when two tabs race a rotation with the
+ * same cookie, which is a legit case. A same-browser replay walks the replacement
+ * chain forward to the live token; a replay from a different browser agent is
+ * treated as theft and revokes the entire family.
  */
 
 const crypto = require('crypto');
@@ -78,39 +81,72 @@ async function rotateRefreshToken(rawToken, { userAgent } = {}) {
   if (!rawToken) throw ApiError.unauthorized('Refresh token missing');
 
   return sequelize.transaction(async (transaction) => {
-    const record = await RefreshToken.findOne({
+    let cursor = await RefreshToken.findOne({
       where: { tokenHash: hashToken(rawToken) },
       lock: transaction.LOCK.UPDATE,
       transaction,
     });
 
-    if (!record) throw ApiError.unauthorized('Refresh token is not recognised');
+    if (!cursor) throw ApiError.unauthorized('Refresh token is not recognised');
 
-    // Presenting a token that was already rotated means the cookie leaked.
-    if (record.revokedAt) {
-      logger.warn({ userId: record.userId }, 'refresh token reuse detected — revoking family');
-      await RefreshToken.update(
-        { revokedAt: new Date() },
-        { where: { userId: record.userId, revokedAt: null }, transaction },
-      );
-      throw ApiError.unauthorized('Session revoked, please sign in again');
+    // A revoked token means it was already rotated. Parallel tabs presenting the
+    // same cookie mid-rotation is a legitimate race — follow the replacement
+    // chain forward (bounded) to the live token and rotate it, so a reload + tab
+    // restore storm converges instead of ending every session. A replay from a
+    // different browser agent means the cookie left this browser: an active theft
+    // — revoke the whole family.
+    let hops = 0;
+    while (cursor.revokedAt) {
+      if (hops >= 8) {
+        logger.warn({ userId: cursor.userId }, 'refresh token chain too deep — revoking family');
+        await RefreshToken.update(
+          { revokedAt: new Date() },
+          { where: { userId: cursor.userId, revokedAt: null }, transaction },
+        );
+        throw ApiError.unauthorized('Session revoked, please sign in again');
+      }
+
+      const selfUserAgent = String(userAgent ?? '').slice(0, 255);
+      const issuerUserAgent = cursor.userAgent ? String(cursor.userAgent).slice(0, 255) : null;
+      const sameBrowser = !issuerUserAgent || !selfUserAgent || issuerUserAgent === selfUserAgent;
+
+      if (!sameBrowser) {
+        logger.warn({ userId: cursor.userId }, 'refresh token reuse from a different browser — revoking family');
+        await RefreshToken.update(
+          { revokedAt: new Date() },
+          { where: { userId: cursor.userId, revokedAt: null }, transaction },
+        );
+        throw ApiError.unauthorized('Session revoked, please sign in again');
+      }
+
+      cursor = cursor.replacedByTokenId
+        ? await RefreshToken.findByPk(cursor.replacedByTokenId, {
+            lock: transaction.LOCK.UPDATE,
+            transaction,
+          })
+        : null;
+
+      if (!cursor) {
+        throw ApiError.unauthorized('Session revoked, please sign in again');
+      }
+      hops += 1;
     }
 
-    if (record.expiresAt.getTime() <= Date.now()) {
+    if (cursor.expiresAt.getTime() <= Date.now()) {
       throw ApiError.unauthorized('Session expired, please sign in again');
     }
 
-    const { rawToken: nextRaw, record: nextRecord } = await issueRefreshToken(record.userId, {
+    const { rawToken: nextRaw, record: nextRecord } = await issueRefreshToken(cursor.userId, {
       userAgent,
       transaction,
     });
 
-    await record.update(
+    await cursor.update(
       { revokedAt: new Date(), replacedByTokenId: nextRecord.id },
       { transaction },
     );
 
-    return { userId: record.userId, rawToken: nextRaw };
+    return { userId: cursor.userId, rawToken: nextRaw };
   });
 }
 
