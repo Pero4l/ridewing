@@ -6,14 +6,7 @@ import Link from "next/link";
 import { useSession } from "@/lib/auth";
 import { ApiError } from "@/lib/api";
 import { AuthLink, AuthShell } from "@/components/auth-shell";
-import { Button, Field, Input } from "@/components/ui";
-
-const DEV_ACCOUNTS = [
-  { label: "ptb", identifier: "ptb" },
-  { label: "maya", identifier: "maya" },
-  { label: "dev", identifier: "dev" },
-  { label: "sam", identifier: "sam" },
-];
+import { Button, Field, Input, PasswordInput } from "@/components/ui";
 
 export default function LoginPage() {
   return (
@@ -40,21 +33,25 @@ function LoginInner() {
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
     setError(null);
+
+    if (!identifier.trim()) {
+      setError("Enter your username, email or phone");
+      return;
+    }
+    if (!password) {
+      setError("Enter your password");
+      return;
+    }
+
     setSubmitting(true);
     try {
-      await login(identifier, password);
+      await login(identifier.trim(), password);
       router.replace(redirectTo);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not sign in. Try again.");
     } finally {
       setSubmitting(false);
     }
-  }
-
-  function quickFill(devIdentifier: string) {
-    setIdentifier(devIdentifier);
-    setPassword("RideWing!Dev2026");
-    setError(null);
   }
 
   return (
@@ -64,25 +61,29 @@ function LoginInner() {
         <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">Sign in to find your ride.</p>
       </div>
 
-      <form onSubmit={onSubmit} className="space-y-4">
+      <form onSubmit={onSubmit} noValidate className="space-y-4">
         <Field label="Username, email or phone">
           <Input
             autoFocus
             autoComplete="username"
             value={identifier}
-            onChange={(event) => setIdentifier(event.target.value)}
-            placeholder="ptb"
-            required
+            onChange={(event) => {
+              setIdentifier(event.target.value);
+              setError(null);
+            }}
+            placeholder="you@example.com"
+            invalid={Boolean(error)}
           />
         </Field>
         <Field label="Password">
-          <Input
-            type="password"
+          <PasswordInput
             autoComplete="current-password"
             value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            placeholder="••••••••••"
-            required
+            onChange={(event) => {
+              setPassword(event.target.value);
+              setError(null);
+            }}
+            invalid={Boolean(error)}
           />
         </Field>
 
@@ -102,24 +103,6 @@ function LoginInner() {
           Sign in
         </Button>
       </form>
-
-      <div className="mt-6 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50/60 p-4 dark:border-zinc-800 dark:bg-zinc-800/40">
-        <p className="mb-3 text-xs font-medium text-zinc-500 dark:text-zinc-400">
-          Demo riders — password <code className="rounded bg-white px-1.5 py-0.5 font-mono text-[11px] text-emerald-700 ring-1 ring-zinc-200 dark:bg-zinc-900 dark:text-emerald-300 dark:ring-zinc-700">RideWing!Dev2026</code>
-        </p>
-        <div className="flex flex-wrap gap-2">
-          {DEV_ACCOUNTS.map((account) => (
-            <button
-              key={account.identifier}
-              type="button"
-              onClick={() => quickFill(account.identifier)}
-              className="rounded-full border border-zinc-200 px-3.5 py-1.5 text-xs font-semibold text-zinc-600 transition-colors hover:border-emerald-500/50 hover:bg-emerald-50 hover:text-emerald-700 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300"
-            >
-              @{account.identifier}
-            </button>
-          ))}
-        </div>
-      </div>
 
       <div className="mt-6 flex items-center justify-center">
         <AuthLink href="/register">Create an account</AuthLink>

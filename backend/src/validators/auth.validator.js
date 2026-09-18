@@ -28,6 +28,19 @@ const register = z
   });
 
 /** One field for username, email or phone — the server works out which it is. */
+/** Admin-only signup. Guarded by the ADMIN_REGISTER_TOKEN header, not the
+ * ordinary open /register path, so admin accounts can never be claimed by an
+ * anonymous visitor even if the public form is abused. Email is required —
+ * admins must exist in Brevo's contact grid to receive the daily/event admin mail. */
+const adminRegister = z
+  .object({
+    username,
+    email,
+    password,
+    displayName: displayName.optional(),
+  })
+  .strict();
+
 const login = z
   .object({
     identifier: z.string().trim().min(3, 'Enter your username, email or phone').max(255),
@@ -62,4 +75,4 @@ const resetPassword = z
   })
   .strict();
 
-module.exports = { register, login, changePassword, verifyEmail, forgotPassword, resetPassword };
+module.exports = { register, adminRegister, login, changePassword, verifyEmail, forgotPassword, resetPassword };

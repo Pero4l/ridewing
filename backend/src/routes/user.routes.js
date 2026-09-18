@@ -54,4 +54,10 @@ router.get(
   userController.listFollowing,
 );
 
+router.get(
+  '/:username/posts',
+  validate({ params: userValidator.usernameParam, query: userValidator.listQuery }),
+  userController.listPosts,
+);
+
 module.exports = router;

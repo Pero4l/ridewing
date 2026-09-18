@@ -58,6 +58,8 @@ export default function ConversationPage({ params }: { params: Promise<{ convers
       key={conversation.id}
       conversationId={conversation.id}
       title={conversation.title}
+      type={conversation.type}
+      community={conversation.community}
       participants={participants}
     />
   );

@@ -41,5 +41,11 @@ router.put(
   validate({ params: v.rideParam, body: v.setVoiceMode }),
   rideController.setVoiceMode,
 );
+router.put(
+  '/:rideId/signal',
+  writeLimiter,
+  validate({ params: v.rideParam, body: v.setSignal }),
+  rideController.setSignal,
+);
 
 module.exports = router;

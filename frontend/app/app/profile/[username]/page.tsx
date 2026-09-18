@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useCallback, useEffect, useState } from "react";
+import { use, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
@@ -12,10 +12,12 @@ import { Badge, EmptyState, PageHeader, SectionTitle } from "@/components/ui";
 import { InlineSpinner } from "@/components/spinner";
 import { BackIcon, CogIcon, MessagesIcon } from "@/components/icons";
 import { VerifiedBadge } from "@/components/verified-badge";
-import { bikeLabel, fullDate, pluralize } from "@/lib/format";
-import type { Page, Profile, PublicUser } from "@/lib/types";
+import { MediaGrid } from "@/components/media-grid";
+import { bikeLabel, fullDateOnly } from "@/lib/format";
+import type { Page, Post, Profile, PublicUser } from "@/lib/types";
 
-type Tab = "followers" | "following";
+type CountTab = "followers" | "following" | null;
+type GalleryTab = "posts" | "tagged" | "shared";
 
 export default function ProfilePage({ params }: { params: Promise<{ username: string }> }) {
   const { username } = use(params);
@@ -25,10 +27,12 @@ export default function ProfilePage({ params }: { params: Promise<{ username: st
 
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab | null>(null);
-  const [followers, setFollowers] = useState<PublicUser[] | null>(null);
-  const [following, setFollowing] = useState<PublicUser[] | null>(null);
+  const [countTab, setCountTab] = useState<CountTab>(null);
+  const [galleryTab, setGalleryTab] = useState<GalleryTab>("posts");
+  const [roster, setRoster] = useState<PublicUser[] | null>(null);
+  const [posts, setPosts] = useState<Post[]>([]);
   const [tabError, setTabError] = useState<string | null>(null);
+  const [postsLoading, setPostsLoading] = useState(true);
   const [messaging, setMessaging] = useState(false);
 
   const loadProfile = useCallback(async () => {
@@ -41,11 +45,28 @@ export default function ProfilePage({ params }: { params: Promise<{ username: st
     }
   }, [username]);
 
+  const loadPosts = useCallback(
+    async (tab: GalleryTab) => {
+      setPostsLoading(true);
+      setTabError(null);
+      try {
+        const page = await api.get<Page<Post>>(`/api/users/${username}/posts?tab=${tab}`);
+        setPosts(page.items);
+      } catch (error) {
+        setTabError(error instanceof ApiError ? error.message : "Could not load posts");
+      } finally {
+        setPostsLoading(false);
+      }
+    },
+    [username],
+  );
+
   useEffect(() => {
     let cancelled = false;
 
     (async () => {
-      setTab(null);
+      setCountTab(null);
+      setGalleryTab("posts");
       try {
         const res = await api.get<{ user: Profile }>(`/api/users/${username}`);
         if (cancelled) return;
@@ -54,24 +75,43 @@ export default function ProfilePage({ params }: { params: Promise<{ username: st
       } catch (error) {
         if (!cancelled) setLoadError(error instanceof ApiError ? error.message : "Could not load profile");
       }
+      if (!cancelled) void loadPosts("posts");
     })();
+
     return () => {
       cancelled = true;
     };
-  }, [username]);
+  }, [username, loadPosts]);
 
-  const openTab = useCallback(async (next: Tab) => {
-    if (!profile) return;
-    setTab(next);
-    setTabError(null);
-    try {
-      const page = await api.get<Page<PublicUser>>(`/api/users/${username}/${next}`);
-      if (next === "followers") setFollowers(page.items);
-      else setFollowing(page.items);
-    } catch (error) {
-      setTabError(error instanceof ApiError ? error.message : "Could not load list");
-    }
-  }, [profile, username]);
+  const openCountTab = useCallback(
+    async (next: Exclude<CountTab, null>) => {
+      if (!profile) return;
+      setCountTab(next);
+      setPosts([]);
+      setTabError(null);
+      try {
+        const page = await api.get<Page<PublicUser>>(`/api/users/${username}/${next}`);
+        setRoster(page.items);
+      } catch (error) {
+        setTabError(error instanceof ApiError ? error.message : "Could not load list");
+      }
+    },
+    [profile, username],
+  );
+
+  const switchGalleryTab = useCallback(
+    (tab: GalleryTab) => {
+      setCountTab(null);
+      setGalleryTab(tab);
+      void loadPosts(tab);
+    },
+    [loadPosts],
+  );
+
+  const visibleMedia = useMemo(
+    () => posts.flatMap((post) => post.media.filter((item) => item.url)),
+    [posts],
+  );
 
   async function message() {
     if (!profile || messaging) return;
@@ -131,8 +171,8 @@ export default function ProfilePage({ params }: { params: Promise<{ username: st
 
       <div className="px-4">
         <div className="flex items-center gap-4">
-          <Avatar name={profile.displayName} username={profile.username} image={profile.profileImage} size={80} />
-          <div className="min-w-0">
+          <Avatar name={profile.displayName} username={profile.username} image={profile.profileImage} size={84} />
+          <div className="min-w-0 flex-1">
             <h1 className="flex items-center gap-1.5 truncate text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
               <span className="truncate">{profile.displayName}</span>
               <VerifiedBadge user={profile} size={18} />
@@ -149,10 +189,23 @@ export default function ProfilePage({ params }: { params: Promise<{ username: st
           </div>
         </div>
 
+        {/* Counts sit above the bio, Instagram-style. */}
+        <div className="mt-4 flex items-center gap-5 text-sm">
+          <span className="text-zinc-900 dark:text-zinc-100">
+            <span className="font-bold">{profile.postCount}</span> <span className="text-zinc-500">posts</span>
+          </span>
+          <button type="button" onClick={() => void openCountTab("followers")} className="text-zinc-900 dark:text-zinc-100">
+            <span className="font-bold">{profile.followerCount}</span> <span className="text-zinc-500">followers</span>
+          </button>
+          <button type="button" onClick={() => void openCountTab("following")} className="text-zinc-900 dark:text-zinc-100">
+            <span className="font-bold">{profile.followingCount}</span> <span className="text-zinc-500">following</span>
+          </button>
+        </div>
+
         {profile.bio && <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-zinc-600 dark:text-zinc-300">{profile.bio}</p>}
 
-        <div className="mt-3 flex gap-2">
-          {!isSelf && (
+        <div className="mt-4 flex items-center gap-2">
+          {!isSelf ? (
             <>
               <FollowButton user={profile} onChanged={() => void loadProfile()} />
               <button
@@ -165,42 +218,38 @@ export default function ProfilePage({ params }: { params: Promise<{ username: st
                 <MessagesIcon size={18} />
               </button>
             </>
+          ) : (
+            <Link
+              href="/app/settings"
+              className="grid h-9 flex-1 place-items-center rounded-full border border-zinc-300 text-sm font-semibold text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+            >
+              Edit profile
+            </Link>
           )}
         </div>
 
-        <div className="mt-5 flex items-center gap-1 text-sm">
-          <button
-            type="button"
-            onClick={() => openTab("followers")}
-            className={`rounded-lg px-2.5 py-1.5 font-medium ${tab === "followers" ? "bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100" : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"}`}
-          >
-            {pluralize(profile.followerCount, "follower")}
-          </button>
-          <button
-            type="button"
-            onClick={() => openTab("following")}
-            className={`rounded-lg px-2.5 py-1.5 font-medium ${tab === "following" ? "bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100" : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"}`}
-          >
-            {pluralize(profile.followingCount, "following")}
-          </button>
-          <span className="ml-auto text-xs text-zinc-400">Joined {fullDate(profile.createdAt)}</span>
-        </div>
+        {!isSelf && <p className="mt-3 text-xs text-zinc-400">Joined {fullDateOnly(profile.createdAt)}</p>}
       </div>
 
-      {tab && (
+      {countTab && (
         <div className="mt-4 border-t border-zinc-100 dark:border-zinc-800">
-          <SectionTitle>{tab === "followers" ? "Followers" : "Following"}</SectionTitle>
+          <div className="flex items-center gap-2 px-4 pt-2">
+            <button type="button" onClick={() => setCountTab(null)} className="text-sm font-medium text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100">
+              ← Back
+            </button>
+            <span className="py-1 text-center text-xs font-semibold uppercase tracking-wider text-zinc-400">{countTab}</span>
+          </div>
           {tabError ? (
             <p className="px-4 py-8 text-center text-sm text-zinc-500 dark:text-zinc-400">{tabError}</p>
-          ) : (tab === "followers" ? followers : following) == null ? (
+          ) : roster == null ? (
             <div className="grid place-items-center py-10">
               <InlineSpinner />
             </div>
-          ) : (tab === "followers" ? followers : following)?.length === 0 ? (
+          ) : roster.length === 0 ? (
             <p className="px-4 py-8 text-center text-sm text-zinc-400">No one here yet.</p>
           ) : (
             <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
-              {(tab === "followers" ? followers : following)?.map((person) => (
+              {roster.map((person) => (
                 <Link key={person.id} href={`/app/profile/${person.username}`} className="flex items-center gap-3 px-4 py-3 active:bg-zinc-50 dark:active:bg-zinc-900">
                   <Avatar name={person.displayName} username={person.username} image={person.profileImage} size={40} />
                   <div className="min-w-0">
@@ -213,6 +262,64 @@ export default function ProfilePage({ params }: { params: Promise<{ username: st
                   {person.id === viewer?.id && <Badge tone="zinc">You</Badge>}
                 </Link>
               ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {!countTab && (
+        <div className="mt-4 border-t border-zinc-100 dark:border-zinc-800">
+          <div className="flex items-center justify-around border-b border-zinc-100 dark:border-zinc-800">
+            {(["posts", "tagged", "shared"] as GalleryTab[]).map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                onClick={() => switchGalleryTab(tab)}
+                className={`flex-1 border-b-2 py-2.5 text-xs font-semibold capitalize transition-colors ${
+                  galleryTab === tab
+                    ? "border-emerald-600 text-emerald-700 dark:text-emerald-400"
+                    : "border-transparent text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300"
+                }`}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
+
+          {postsLoading ? (
+            <div className="grid place-items-center py-12">
+              <InlineSpinner />
+            </div>
+          ) : tabError ? (
+            <p className="px-4 py-8 text-center text-sm text-zinc-500 dark:text-zinc-400">{tabError}</p>
+          ) : visibleMedia.length === 0 ? (
+            <EmptyState
+              icon={<span className="text-lg font-bold">📷</span>}
+              title={
+                galleryTab === "posts"
+                  ? "No posts yet"
+                  : galleryTab === "shared"
+                    ? "Nothing shared yet"
+                    : "No tagged posts yet"
+              }
+              description={
+                galleryTab === "posts"
+                  ? isSelf
+                    ? "Share a photo or note from the feed."
+                    : "Riders share their rides as they go."
+                  : galleryTab === "shared"
+                    ? "Posts this rider has passed on will appear here."
+                    : "Posts mentioning @this rider will appear here."
+              }
+            />
+          ) : (
+            <div className="p-2">
+              <MediaGrid media={visibleMedia} />
+            </div>
+          )}
+          {!postsLoading && (galleryTab === "posts" || galleryTab === "shared" || galleryTab === "tagged") && (
+            <div className="px-4 pb-6 pt-1 text-center text-xs text-zinc-400">
+              <SectionTitle>{galleryTab === "posts" ? "Posts" : galleryTab === "shared" ? "Shared" : "Tagged"} by {profile.displayName}</SectionTitle>
             </div>
           )}
         </div>

@@ -14,6 +14,7 @@ const rideRoutes = require('./ride.routes');
 const notificationRoutes = require('./notification.routes');
 const uploadRoutes = require('./upload.routes');
 const postRoutes = require('./post.routes');
+const pushRoutes = require('./push.routes');
 
 const router = express.Router();
 
@@ -39,5 +40,6 @@ router.use('/rides', rideRoutes);
 router.use('/notifications', notificationRoutes);
 router.use('/upload', uploadRoutes);
 router.use('/posts', postRoutes);
+router.use('/push', pushRoutes);
 
 module.exports = router;

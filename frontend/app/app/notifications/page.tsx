@@ -49,6 +49,8 @@ function describe(item: NotificationItem): NotificationCopy {
       return { text: "commented on your post", href: postLink };
     case "post_share":
       return { text: "shared your post", href: postLink };
+    case "comment_reply":
+      return { text: "replied to your comment", href: postLink };
     default:
       return { text: item.type.replaceAll("_", " "), href: actorLink || null };
   }

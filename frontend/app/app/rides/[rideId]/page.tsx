@@ -10,16 +10,24 @@ import { VoiceRoom, type RoomPeer } from "@/lib/webrtc";
 import { Avatar } from "@/components/avatar";
 import { Badge, Button, Card, EmptyState, PageHeader } from "@/components/ui";
 import { InlineSpinner } from "@/components/spinner";
-import { BackIcon, CheckIcon, MicIcon, MicOffIcon } from "@/components/icons";
+import { BackIcon, CheckIcon, HelpIcon, MicIcon, MicOffIcon, StopIcon } from "@/components/icons";
+import { playHelpSound, playSignalSent, playStopSound } from "@/lib/ride-sounds";
 import { VerifiedBadge } from "@/components/verified-badge";
 import { bikeLabel, pluralize } from "@/lib/format";
-import type { Peer, Ride } from "@/lib/types";
+import type { Peer, Ride, RideRelation } from "@/lib/types";
 
 type JoinRideAck = {
   ok: boolean;
   error?: { message: string };
   peers?: Peer[];
   selfSocketId?: string;
+};
+
+type SignalEvent = {
+  rideId: string;
+  userId: string;
+  kind: "help" | "stop";
+  active: string | null;
 };
 
 export default function RideDetailPage({ params }: { params: Promise<{ rideId: string }> }) {
@@ -29,6 +37,7 @@ export default function RideDetailPage({ params }: { params: Promise<{ rideId: s
   const { user } = useSession();
 
   const [ride, setRide] = useState<Ride | null>(null);
+  const [relation, setRelation] = useState<RideRelation | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [voiceActive, setVoiceActive] = useState(false);
   const [voiceMode, setVoiceMode] = useState<"ptt" | "open">("ptt");
@@ -36,6 +45,7 @@ export default function RideDetailPage({ params }: { params: Promise<{ rideId: s
   const [voiceMessage, setVoiceMessage] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [signalBusy, setSignalBusy] = useState<"help" | "stop" | null>(null);
 
   const roomRef = useRef<VoiceRoom | null>(null);
   const activeRef = useRef(false);
@@ -44,8 +54,9 @@ export default function RideDetailPage({ params }: { params: Promise<{ rideId: s
 
   const loadRide = useCallback(async () => {
     try {
-      const res = await api.get<{ ride: Ride }>(`/api/rides/${rideId}`);
+      const res = await api.get<{ ride: Ride; relation: RideRelation }>(`/api/rides/${rideId}`);
       setRide(res.ride);
+      setRelation(res.relation);
       setLoadError(null);
     } catch (error) {
       setLoadError(error instanceof ApiError ? error.message : "Could not load ride");
@@ -56,9 +67,10 @@ export default function RideDetailPage({ params }: { params: Promise<{ rideId: s
     let cancelled = false;
     (async () => {
       try {
-        const res = await api.get<{ ride: Ride }>(`/api/rides/${rideId}`);
+        const res = await api.get<{ ride: Ride; relation: RideRelation }>(`/api/rides/${rideId}`);
         if (cancelled) return;
         setRide(res.ride);
+        setRelation(res.relation);
         setLoadError(null);
       } catch (error) {
         if (!cancelled) setLoadError(error instanceof ApiError ? error.message : "Could not load ride");
@@ -76,6 +88,29 @@ export default function RideDetailPage({ params }: { params: Promise<{ rideId: s
         current ? { ...current, participants: (current.participants ?? []).filter((p) => p.userId !== userId) } : current,
       );
     });
+    const offSignal = _onSocketEvent<SignalEvent>("ride:signal", ({ rideId: signalRideId, userId, kind, active }) => {
+      if (signalRideId !== rideId) return;
+      setRide((current) =>
+        current
+          ? {
+              ...current,
+              participants: (current.participants ?? []).map((participant) =>
+                participant.userId === userId
+                  ? {
+                      ...participant,
+                      helpRequestedAt: kind === "help" ? active : participant.helpRequestedAt,
+                      stoppedAt: kind === "stop" ? active : participant.stoppedAt,
+                    }
+                  : participant,
+              ),
+            }
+          : current,
+      );
+      if (userId !== myId) {
+        if (kind === "help") playHelpSound();
+        else playStopSound();
+      }
+    });
     const offEnded = _onSocketEvent<{ id: string; status: string }>("ride:ended", (payload) => {
       setRide((current) => (current ? { ...current, status: "ended", endedAt: new Date().toISOString() } : current));
       if (payload.id !== rideId) return;
@@ -84,10 +119,11 @@ export default function RideDetailPage({ params }: { params: Promise<{ rideId: s
     });
     return () => {
       offLeft();
+      offSignal();
       offEnded();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rideId]);
+  }, [rideId, myId, toast]);
 
   const isParticipant = Boolean(ride && myId && ride.participants?.some((participant) => participant.userId === myId));
   const isCreator = ride?.creatorId === myId;
@@ -219,6 +255,42 @@ export default function RideDetailPage({ params }: { params: Promise<{ rideId: s
     }
   }
 
+  async function toggleSignal(kind: "help" | "stop") {
+    if (!ride || signalBusy) return;
+    const participant = ride.participants?.find((p) => p.userId === myId);
+    const isOn = kind === "help" ? participant?.helpRequestedAt : participant?.stoppedAt;
+    const next = !Boolean(isOn);
+    setSignalBusy(kind);
+    try {
+      await api.put(`/api/rides/${rideId}/signal`, { kind, active: next });
+      setRide((current) =>
+        current
+          ? {
+              ...current,
+              participants: (current.participants ?? []).map((participant) =>
+                participant.userId === myId
+                  ? {
+                      ...participant,
+                      helpRequestedAt: kind === "help" ? (next ? new Date().toISOString() : null) : participant.helpRequestedAt,
+                      stoppedAt: kind === "stop" ? (next ? new Date().toISOString() : null) : participant.stoppedAt,
+                    }
+                  : participant,
+              ),
+            }
+          : current,
+      );
+      if (next) playSignalSent();
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : "Could not send signal");
+    } finally {
+      setSignalBusy(null);
+    }
+  }
+
+  function participantById(userId: string) {
+    return ride?.participants?.find((participant) => participant.userId === userId);
+  }
+
   useEffect(() => {
     return () => {
       activeRef.current = false;
@@ -284,6 +356,26 @@ export default function RideDetailPage({ params }: { params: Promise<{ rideId: s
           </Card>
         </div>
 
+        {relation && !isCreator && !isParticipant && (
+          <div className="mt-3">
+            {relation.hasMutualRelation ? (
+              <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300">
+                {relation.isFriend
+                  ? `You and ${ride.creator?.displayName ?? "this rider"} follow each other`
+                  : relation.mutualCommunities.length
+                    ? `You ride together in ${relation.mutualCommunities.map((community) => community.name).join(", ")}`
+                    : relation.viewerFollowsCreator
+                      ? "You follow this rider"
+                      : "This rider follows you"}
+              </p>
+            ) : (
+              <p className="rounded-xl border border-zinc-200 bg-zinc-100 px-3 py-2 text-sm text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
+                You don&apos;t have any mutual relations with this ride&apos;s creator.
+              </p>
+            )}
+          </div>
+        )}
+
         {voiceMessage && (
           <p className="mt-3 rounded-lg bg-zinc-100 px-3 py-2 text-sm text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
             {voiceMessage}
@@ -333,6 +425,37 @@ export default function RideDetailPage({ params }: { params: Promise<{ rideId: s
             </Button>
           </div>
         )}
+
+        {isParticipant && !ended && (
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => void toggleSignal("help")}
+              disabled={Boolean(signalBusy)}
+              className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-3 text-sm font-semibold transition-colors ${
+                participantById(myId ?? "")?.helpRequestedAt
+                  ? "border-red-300 bg-red-500 text-white shadow-sm shadow-red-500/30"
+                  : "border-red-200 bg-red-50 text-red-600 hover:bg-red-100 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300 dark:hover:bg-red-950/70"
+              }`}
+            >
+              <HelpIcon size={18} />
+              {participantById(myId ?? "")?.helpRequestedAt ? "Help sent" : "I need help"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void toggleSignal("stop")}
+              disabled={Boolean(signalBusy)}
+              className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-3 text-sm font-semibold transition-colors ${
+                participantById(myId ?? "")?.stoppedAt
+                  ? "border-amber-400 bg-amber-500 text-white shadow-sm shadow-amber-500/30"
+                  : "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-300 dark:hover:bg-amber-950/70"
+              }`}
+            >
+              <StopIcon size={18} />
+              {participantById(myId ?? "")?.stoppedAt ? "Stopped" : "I've stopped"}
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="mt-5 px-4">
@@ -364,7 +487,19 @@ export default function RideDetailPage({ params }: { params: Promise<{ rideId: s
                       : bikeLabel(participant.user?.bikeInfo) || `@${participant.user?.username ?? ""}`}
                   </p>
                 </div>
-                {participant.userId === ride.creatorId && <Badge tone="green">Host</Badge>}
+                <div className="flex shrink-0 items-center gap-1.5">
+                  {participant.helpRequestedAt ? (
+                    <Badge tone="red">
+                      <HelpIcon size={12} /> Needs help
+                    </Badge>
+                  ) : null}
+                  {participant.stoppedAt ? (
+                    <Badge tone="amber">
+                      <StopIcon size={12} /> Stopped
+                    </Badge>
+                  ) : null}
+                  {participant.userId === ride.creatorId && <Badge tone="green">Host</Badge>}
+                </div>
               </div>
             );
           })}

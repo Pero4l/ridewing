@@ -24,11 +24,6 @@ export function AuthShell({ children }: { children: ReactNode }) {
         <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl shadow-zinc-950/5 dark:border-zinc-800 dark:bg-zinc-900 dark:shadow-black/40">
           {children}
         </div>
-        <p className="mt-6 text-center text-xs leading-relaxed text-zinc-400 dark:text-zinc-600">
-          RideWing is private by design. Sessions use password hashing,
-          <br />
-          cookie-backed auth and scoped access tokens.
-        </p>
       </div>
     </main>
   );

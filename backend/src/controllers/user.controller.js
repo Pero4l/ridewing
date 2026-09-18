@@ -3,6 +3,7 @@
 const asyncHandler = require('../utils/asyncHandler');
 const userService = require('../services/user.service');
 const followService = require('../services/follow.service');
+const postService = require('../services/post.service');
 
 const getProfile = asyncHandler(async (req, res) => {
   const profile = await userService.getProfile(req.params.username, req.user?.id);
@@ -53,6 +54,11 @@ const listFollowing = asyncHandler(async (req, res) => {
   res.json(page);
 });
 
+const listPosts = asyncHandler(async (req, res) => {
+  const page = await postService.userPosts(req.params.username, req.validatedQuery);
+  res.json(page);
+});
+
 module.exports = {
   getProfile,
   updateProfile,
@@ -61,4 +67,5 @@ module.exports = {
   unfollow,
   listFollowers,
   listFollowing,
+  listPosts,
 };

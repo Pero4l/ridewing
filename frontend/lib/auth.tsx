@@ -12,6 +12,14 @@ import {
 } from "./api";
 import type { Me } from "./types";
 import { disconnectSocket } from "./socket";
+import { subscribeToPush, unsubscribeFromPush } from "./push";
+
+// Push priming is best-effort and never blocks the session transition. The
+// browser asks for notification permission once per origin; subsequent logins
+// reuse the stored decision and just re-arm the existing subscription.
+function primePush() {
+  void subscribeToPush();
+}
 
 type SessionState = {
   status: "loading" | "authed" | "guest";
@@ -29,17 +37,31 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<Me | null>(null);
   const refreshingRef = useRef(false);
 
-  // Restore a cookie-backed session on boot.
+  // Restore a cookie-backed session on boot. A single failed restore on a cold
+  // reload would otherwise flip us to "guest" and bounce /app out to /login, so
+  // retry once with a short backoff before giving up. Only the first attempt is
+  // immediate; the retry waits out a spinning backend (e.g. a Render/Railway
+  // cold start) without ever softening the guest gate.
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      try {
-        const restored = await refreshSession();
+      const attempt = async (): Promise<boolean> => {
+        try {
+          return await refreshSession();
+        } catch {
+          return false;
+        }
+      };
+
+      let restored = await attempt();
+      if (!restored) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
         if (cancelled) return;
-        setStatus(restored ? "authed" : "guest");
-      } catch {
-        if (!cancelled) setStatus("guest");
+        restored = await attempt();
       }
+
+      if (cancelled) return;
+      setStatus(restored ? "authed" : "guest");
     })();
     return () => {
       cancelled = true;
@@ -74,16 +96,19 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     const session = await postLogin(identifier, password);
     setUser(session.user);
     setStatus("authed");
+    primePush();
   }, []);
 
   const register = useCallback(async (payload: Record<string, unknown>) => {
     const session = await postRegister(payload);
     setUser(session.user);
     setStatus("authed");
+    primePush();
   }, []);
 
   const logout = useCallback(async () => {
     try {
+      void unsubscribeFromPush();
       await postLogout();
     } finally {
       disconn();

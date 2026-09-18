@@ -50,6 +50,16 @@ const register = asyncHandler(async (req, res) => {
   res.status(201).json({ user: user.toPrivateJSON(), accessToken });
 });
 
+const registerAdmin = asyncHandler(async (req, res) => {
+  const { user, accessToken, refreshToken } = await authService.registerAdmin(req.body, {
+    adminToken: req.header('X-Admin-Token'),
+    userAgent: req.headers['user-agent'],
+  });
+
+  setRefreshCookie(res, refreshToken);
+  res.status(201).json({ user: user.toPrivateJSON(), accessToken });
+});
+
 const login = asyncHandler(async (req, res) => {
   const { user, accessToken, refreshToken } = await authService.login(req.body, {
     userAgent: req.headers['user-agent'],
@@ -94,4 +104,4 @@ const resetPassword = asyncHandler(async (req, res) => {
   res.json(await passwordResetService.resetPassword(req.body));
 });
 
-module.exports = { register, login, refresh, logout, me, changePassword, forgotPassword, resetPassword, REFRESH_COOKIE };
+module.exports = { register, registerAdmin, login, refresh, logout, me, changePassword, forgotPassword, resetPassword, REFRESH_COOKIE };

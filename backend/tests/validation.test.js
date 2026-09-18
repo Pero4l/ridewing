@@ -19,7 +19,7 @@ describe('privilege escalation via extra fields', () => {
     const attempt = authValidator.register.safeParse({
       username: 'newrider',
       email: 'new@example.com',
-      password: 'a-long-enough-password',
+      password: 'Str0ng-Enough-Password',
       id: '11111111-1111-4111-8111-111111111111',
       passwordHash: '$2b$12$injected',
     });
@@ -65,17 +65,17 @@ describe('registration rules', () => {
   it('requires an email or a phone number', () => {
     const neither = authValidator.register.safeParse({
       username: 'rider',
-      password: 'a-long-enough-password',
+      password: 'Str0ng-Enough-Password',
     });
     const withEmail = authValidator.register.safeParse({
       username: 'rider',
       email: 'rider@example.com',
-      password: 'a-long-enough-password',
+      password: 'Str0ng-Enough-Password',
     });
     const withPhone = authValidator.register.safeParse({
       username: 'rider',
       phone: '+14155550123',
-      password: 'a-long-enough-password',
+      password: 'Str0ng-Enough-Password',
     });
 
     expect(neither.success).toBe(false);
@@ -117,7 +117,7 @@ describe('registration rules', () => {
     const parsed = authValidator.register.parse({
       username: 'RiderOne',
       email: 'Rider@Example.COM',
-      password: 'a-long-enough-password',
+      password: 'Str0ng-Enough-Password',
     });
 
     expect(parsed.username).toBe('riderone');
@@ -125,11 +125,11 @@ describe('registration rules', () => {
   });
 
   it('rejects usernames that could be confused with routes or contain separators', () => {
-    ['ab', 'has space', 'has/slash', 'has.dot', 'a'.repeat(31), 'CAPS!'].forEach((username) => {
+    ['a', 'has space', 'has/slash', 'has.dot', 'a'.repeat(31), 'CAPS!'].forEach((username) => {
       const result = authValidator.register.safeParse({
         username,
         email: 'rider@example.com',
-        password: 'a-long-enough-password',
+        password: 'Str0ng-Enough-Password',
       });
       expect(result.success).toBe(false);
     });

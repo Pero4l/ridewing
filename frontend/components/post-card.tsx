@@ -9,7 +9,7 @@ import { Avatar } from "@/components/avatar";
 import { VerifiedBadge } from "@/components/verified-badge";
 import { MediaGrid } from "@/components/media-grid";
 import { PostEditDialog } from "@/components/post-edit-dialog";
-import { CommentIcon, DotsHorizontalIcon, EditIcon, HeartIcon, ShareIcon, TrashIcon } from "@/components/icons";
+import { CommentIcon, DotsHorizontalIcon, EditIcon, HeartIcon, ShareIcon, TrashIcon, XIcon } from "@/components/icons";
 import { SpinnerIcon } from "@/components/spinner";
 import { timeAgo } from "@/lib/format";
 import type { Post, PostCommentItem } from "@/lib/types";
@@ -199,6 +199,7 @@ export function PostCard({ post, onChanged }: PostCardProps) {
 function CommentThread({ postId, onChanged }: { postId: string; onChanged: () => void }) {
   const [comments, setComments] = useState<PostCommentItem[]>([]);
   const [draft, setDraft] = useState("");
+  const [replyingTo, setReplyingTo] = useState<PostCommentItem | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const toast = useToast();
@@ -207,7 +208,7 @@ function CommentThread({ postId, onChanged }: { postId: string; onChanged: () =>
     let cancelled = false;
     (async () => {
       try {
-        const page = await api.get<{ items: PostCommentItem[] }>(`/api/posts/${postId}/comments?limit=20`);
+        const page = await api.get<{ items: PostCommentItem[] }>(`/api/posts/${postId}/comments?limit=50`);
         if (!cancelled) {
           setComments(page.items);
         }
@@ -222,20 +223,44 @@ function CommentThread({ postId, onChanged }: { postId: string; onChanged: () =>
     };
   }, [postId, toast]);
 
+  function beginReply(comment: PostCommentItem) {
+    setReplyingTo(comment);
+  }
+
+  function cancelReply() {
+    setReplyingTo(null);
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault();
     const content = draft.trim();
     if (!content || submitting) return;
     setSubmitting(true);
     try {
-      const res = await api.post<{ comment: PostCommentItem }>(`/api/posts/${postId}/comments`, { content });
+      const res = await api.post<{ comment: PostCommentItem }>(`/api/posts/${postId}/comments`, {
+        content,
+        parentId: replyingTo?.id,
+      });
       setComments((current) => [...current, res.comment]);
       setDraft("");
+      setReplyingTo(null);
       onChanged();
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Could not post comment");
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  // Single-level nesting, Instagram style: replies are grouped under their
+  // parent comment even though the API returns a flat, chronological list.
+  const topLevel = comments.filter((comment) => !comment.parentId);
+  const byParent = new Map<string, PostCommentItem[]>();
+  for (const comment of comments) {
+    if (comment.parentId) {
+      const list = byParent.get(comment.parentId) ?? [];
+      list.push(comment);
+      byParent.set(comment.parentId, list);
     }
   }
 
@@ -245,26 +270,30 @@ function CommentThread({ postId, onChanged }: { postId: string; onChanged: () =>
         <div className="flex items-center gap-2 py-2 text-xs text-zinc-400">
           <SpinnerIcon size={13} className="animate-spin" /> Loading comments…
         </div>
-      ) : comments.length === 0 ? (
+      ) : topLevel.length === 0 ? (
         <p className="py-1 text-xs text-zinc-400">No comments yet — say something nice.</p>
       ) : (
-        comments.map((comment) => (
-          <div key={comment.id} className="flex items-start gap-2.5">
-            {comment.user && (
-              <Link href={`/app/profile/${comment.user.username}`}>
-                <Avatar name={comment.user.displayName} username={comment.user.username} image={comment.user.profileImage} size={28} />
-              </Link>
-            )}
-            <div className="min-w-0 flex-1 rounded-2xl rounded-tl-md bg-zinc-100 px-3 py-2 dark:bg-zinc-800">
-              <p className="flex items-center gap-1 text-xs font-semibold text-zinc-800 dark:text-zinc-200">
-                <span className="truncate">{comment.user?.displayName ?? "Someone"}</span>
-                <VerifiedBadge user={comment.user} size={11} />
-                <span className="font-normal text-zinc-400">· {timeAgo(comment.createdAt)}</span>
-              </p>
-              <p className="mt-0.5 whitespace-pre-wrap break-words text-sm text-zinc-700 dark:text-zinc-300">{comment.content}</p>
-            </div>
-          </div>
+        topLevel.map((comment) => (
+          <CommentRow
+            key={comment.id}
+            comment={comment}
+            replies={byParent.get(comment.id) ?? []}
+            onReply={beginReply}
+          />
         ))
+      )}
+
+      {replyingTo && (
+        <p className="flex items-center gap-2 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+          Replying to <span className="text-emerald-700 dark:text-emerald-400">@{replyingTo.user?.username ?? "someone"}</span>
+          <button
+            type="button"
+            onClick={cancelReply}
+            className="ml-auto inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800"
+          >
+            <XIcon size={12} /> Cancel
+          </button>
+        </p>
       )}
 
       <form onSubmit={submit} className="flex items-center gap-2 pt-1">
@@ -272,8 +301,8 @@ function CommentThread({ postId, onChanged }: { postId: string; onChanged: () =>
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           maxLength={1000}
-          placeholder="Add a comment…"
-          aria-label="Add a comment"
+          placeholder={replyingTo ? `Reply to @${replyingTo.user?.username ?? "someone"}…` : "Add a comment…"}
+          aria-label={replyingTo ? "Reply to comment" : "Add a comment"}
           className="h-9 w-full rounded-full border border-zinc-200 bg-white px-3.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-500/15 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
         />
         <button
@@ -285,6 +314,55 @@ function CommentThread({ postId, onChanged }: { postId: string; onChanged: () =>
           {submitting ? <SpinnerIcon size={15} className="animate-spin" /> : <CommentIcon size={15} />}
         </button>
       </form>
+    </div>
+  );
+}
+
+function CommentRow({
+  comment,
+  replies,
+  onReply,
+  isReply = false,
+}: {
+  comment: PostCommentItem;
+  replies: PostCommentItem[];
+  onReply: (comment: PostCommentItem) => void;
+  isReply?: boolean;
+}) {
+  return (
+    <div className="space-y-2.5">
+      <div className={`flex items-start gap-2.5 ${isReply ? "pl-2 sm:pl-6" : ""}`}>
+        {comment.user && (
+          <Link href={`/app/profile/${comment.user.username}`}>
+            <Avatar name={comment.user.displayName} username={comment.user.username} image={comment.user.profileImage} size={isReply ? 24 : 28} />
+          </Link>
+        )}
+        <div className="min-w-0 flex-1">
+          <div className="rounded-2xl rounded-tl-md bg-zinc-100 px-3 py-2 dark:bg-zinc-800">
+            <p className="flex items-center gap-1 text-xs font-semibold text-zinc-800 dark:text-zinc-200">
+              <span className="truncate">{comment.user?.displayName ?? "Someone"}</span>
+              <VerifiedBadge user={comment.user} size={11} />
+              <span className="font-normal text-zinc-400">· {timeAgo(comment.createdAt)}</span>
+            </p>
+            <p className="mt-0.5 whitespace-pre-wrap break-words text-sm text-zinc-700 dark:text-zinc-300">{comment.content}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => onReply(comment)}
+            className="ml-2 mt-0.5 text-[11px] font-semibold text-zinc-400 transition-colors hover:text-emerald-700 dark:hover:text-emerald-400"
+          >
+            Reply
+          </button>
+        </div>
+      </div>
+
+      {replies.length > 0 && (
+        <div className="space-y-2.5 border-l-2 border-zinc-100 pl-4 sm:ml-10 dark:border-zinc-800">
+          {replies.map((reply) => (
+            <CommentRow key={reply.id} comment={reply} replies={[]} onReply={onReply} isReply />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -7,16 +7,30 @@ import { emitWithAck, onSocketEvent } from "@/lib/socket";
 import { useSession } from "@/lib/auth";
 import { useToast } from "@/components/toast";
 import { Avatar } from "@/components/avatar";
-import { Button } from "@/components/ui";
+import { Badge, Button } from "@/components/ui";
 import { InlineSpinner } from "@/components/spinner";
-import { SendIcon } from "@/components/icons";
+import { DotsHorizontalIcon, SendIcon } from "@/components/icons";
 import { VerifiedBadge } from "@/components/verified-badge";
 import { clockTime } from "@/lib/format";
 import type { Message, Page, PublicUser } from "@/lib/types";
 
 type TypingEvent = { conversationId: string; userId: string; username: string; isTyping: boolean };
 
-export function ChatThread({ conversationId, title, participants }: { conversationId: string; title: string; participants: PublicUser[] }) {
+const NEAR_BOTTOM_PX = 160;
+
+export function ChatThread({
+  conversationId,
+  title,
+  type,
+  community,
+  participants,
+}: {
+  conversationId: string;
+  title: string;
+  type: "direct" | "community";
+  community: { id: string; name: string; slug: string; image: string | null } | null;
+  participants: PublicUser[];
+}) {
   const { user } = useSession();
   const toast = useToast();
 
@@ -30,10 +44,12 @@ export function ChatThread({ conversationId, title, participants }: { conversati
   const [draft, setDraft] = useState("");
   const [sendBusy, setSendBusy] = useState(false);
   const [menuFor, setMenuFor] = useState<string | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const idsRef = useRef(new Set<string>());
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const nearBottomRef = useRef(true);
   const joinedRef = useRef(false);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -82,7 +98,7 @@ export function ChatThread({ conversationId, title, participants }: { conversati
       if (message.conversationId !== conversationId) return;
       upsert(message);
       settlePending(message);
-      scrollToBottom();
+      if (nearBottomRef.current) scrollToBottom();
     });
     const offDeleted = onSocketEvent<{ id: string }>("message:deleted", ({ id }) => {
       idsRef.current.delete(id);
@@ -113,15 +129,27 @@ export function ChatThread({ conversationId, title, participants }: { conversati
     setPending((current) => current.filter((pendingMessage) => pendingMessage.clientNonce !== message.clientNonce));
   }
 
-  const scrollToBottom = useCallback(() => {
-    requestAnimationFrame(() => {
-      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-    });
+  const isNearBottom = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return true;
+    return el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX;
   }, []);
 
-  useEffect(() => {
-    if (!historyLoading) scrollToBottom();
-  }, [historyLoading, scrollToBottom]);
+  // Track "am I at the bottom" live so we never yank the rider up the thread
+  // when a new message lands while they are reading older ones.
+  const trackScroll = useCallback(() => {
+    nearBottomRef.current = isNearBottom();
+  }, [isNearBottom]);
+
+  const scrollToBottom = useCallback((smooth = true) => {
+    if (!smooth) {
+      requestAnimationFrame(() => bottomRef.current?.scrollIntoView());
+      return;
+    }
+    requestAnimationFrame(() => {
+      if (isNearBottom()) bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    });
+  }, [isNearBottom]);
 
   const loadOlder = useCallback(async () => {
     if (!nextCursor || loadingOlder) return;
@@ -152,6 +180,14 @@ export function ChatThread({ conversationId, title, participants }: { conversati
     emitWithAck<{ conversationId: string }>("conversation:read", { conversationId }).catch(() => {});
     api.post(`/api/conversations/${conversationId}/read`).catch(() => {});
   }, [conversationId]);
+
+  // Mark incoming messages read as soon as they are anywhere near the viewport.
+  useEffect(() => {
+    trackScroll();
+    const el = scrollRef.current;
+    el?.addEventListener("scroll", trackScroll, { passive: true });
+    return () => el?.removeEventListener("scroll", trackScroll);
+  }, [historyLoading, trackScroll]);
 
   useEffect(() => {
     markRead();
@@ -244,7 +280,15 @@ export function ChatThread({ conversationId, title, participants }: { conversati
 
   return (
     <div className="flex h-dvh flex-col">
-      <ChatHeader title={title} participants={participants} onRead={markRead} />
+      <ChatHeader
+        title={title}
+        type={type}
+        community={community}
+        participants={participants}
+        menuOpen={menuOpen}
+        setMenuOpen={setMenuOpen}
+        onRead={markRead}
+      />
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 pb-3 pt-4">
         {historyLoading ? (
@@ -316,7 +360,32 @@ export function ChatThread({ conversationId, title, participants }: { conversati
   );
 }
 
-function ChatHeader({ title, participants, onRead }: { title: string; participants: PublicUser[]; onRead: () => void }) {
+function ChatHeader({
+  title,
+  type,
+  community,
+  participants,
+  menuOpen,
+  setMenuOpen,
+  onRead,
+}: {
+  title: string;
+  type: "direct" | "community";
+  community: { id: string; name: string; slug: string; image: string | null } | null;
+  participants: PublicUser[];
+  menuOpen: boolean;
+  setMenuOpen: (value: boolean) => void;
+  onRead: () => void;
+}) {
+  const isCommunity = type === "community";
+  const target = isCommunity
+    ? community
+      ? `/app/communities/${community.slug}`
+      : null
+    : participants[0]
+      ? `/app/profile/${participants[0].username}`
+      : null;
+
   return (
     <header className="flex items-center gap-3 border-b border-zinc-100 bg-white/90 px-4 py-3 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/90">
       <Link href="/app/messages" aria-label="Back" className="grid h-8 w-8 place-items-center rounded-full text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800">
@@ -324,24 +393,75 @@ function ChatHeader({ title, participants, onRead }: { title: string; participan
           <path d="M15 18 9 12l6-6" />
         </svg>
       </Link>
-      <div className="flex min-w-0 items-center gap-2.5" onClick={() => onRead()}>
-        {participants[0] && (
-          <Avatar
-            name={title}
-            username={participants[0].username}
-            image={participants[0].profileImage}
-            size={36}
-          />
+
+      <div className="flex min-w-0 flex-1 items-center gap-2.5" onClick={() => onRead()}>
+        {isCommunity ? (
+          <Avatar name={community?.name ?? title} username={community?.slug ?? title} image={community?.image ?? null} size={36} />
+        ) : (
+          participants[0] && (
+            <Avatar
+              name={participants[0].displayName}
+              username={participants[0].username}
+              image={participants[0].profileImage}
+              size={36}
+            />
+          )
         )}
         <div className="min-w-0">
-          <p className="truncate font-semibold text-zinc-900 dark:text-zinc-100">{title}</p>
-          {participants[0] && (
-            <Link href={`/app/profile/${participants[0].username}`} className="flex items-center gap-1 truncate text-xs text-zinc-400 hover:underline">
-              <span className="truncate">@{participants[0].username}</span>
-              <VerifiedBadge user={participants[0]} size={12} />
-            </Link>
+          <div className="flex items-center gap-2">
+            <p className="truncate font-semibold text-zinc-900 dark:text-zinc-100">{title}</p>
+            <Badge tone={isCommunity ? "blue" : "green"}>{isCommunity ? "Community" : "Direct"}</Badge>
+          </div>
+          {isCommunity ? (
+            <p className="truncate text-xs text-zinc-400">Community chat {community ? `· ${community.slug}` : ""}</p>
+          ) : (
+            participants[0] && (
+              <Link
+                href={`/app/profile/${participants[0].username}`}
+                onClick={(event) => event.stopPropagation()}
+                className="flex items-center gap-1 truncate text-xs text-zinc-400 hover:underline"
+              >
+                <span className="truncate">@{participants[0].username}</span>
+                <VerifiedBadge user={participants[0]} size={12} />
+              </Link>
+            )
           )}
         </div>
+      </div>
+
+      <div className="relative shrink-0">
+        <button
+          type="button"
+          aria-label="Chat options"
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          onClick={() => setMenuOpen(!menuOpen)}
+          className="grid h-8 w-8 place-items-center rounded-full text-zinc-500 transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800"
+        >
+          <DotsHorizontalIcon size={18} />
+        </button>
+        {menuOpen && (
+          <>
+            <button type="button" aria-label="Close menu" onClick={() => setMenuOpen(false)} className="fixed inset-0 z-10 cursor-default" />
+            <div className="absolute right-0 z-20 mt-1 w-52 overflow-hidden rounded-xl border border-zinc-200 bg-white py-1 shadow-lg shadow-zinc-950/10 dark:border-zinc-700 dark:bg-zinc-800">
+              <p className="px-3.5 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+                {isCommunity ? "Community" : "Rider"}
+              </p>
+              {target && (
+                <Link
+                  href={target}
+                  onClick={() => setMenuOpen(false)}
+                  className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-700"
+                >
+                  {isCommunity ? "Open community" : "View profile"}
+                </Link>
+              )}
+              <p className="px-3.5 py-2 text-xs text-zinc-400 dark:text-zinc-500">
+                {participants.length > 1 && !isCommunity ? `${participants.length} riders in this chat` : "Messages are delivered instantly."}
+              </p>
+            </div>
+          </>
+        )}
       </div>
     </header>
   );

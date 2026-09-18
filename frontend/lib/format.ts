@@ -22,6 +22,16 @@ export function fullDate(iso: string | null | undefined): string {
   });
 }
 
+/** Calendar date only — no time of day. */
+export function fullDateOnly(iso: string | null | undefined): string {
+  if (!iso) return "";
+  return new Date(iso).toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
 export function clockTime(iso: string | null | undefined): string {
   if (!iso) return "";
   return new Date(iso).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });

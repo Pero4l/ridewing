@@ -26,4 +26,11 @@ const joinByCode = z
 
 const setVoiceMode = z.object({ voiceMode: z.enum(['ptt', 'open']) }).strict();
 
-module.exports = { create, rideParam, joinByCode, setVoiceMode };
+const setSignal = z
+  .object({
+    kind: z.enum(['help', 'stop']),
+    active: z.boolean(),
+  })
+  .strict();
+
+module.exports = { create, rideParam, joinByCode, setVoiceMode, setSignal };

@@ -21,6 +21,8 @@ async function sendTransactional({ to, subject, html, text }) {
     throw ApiError.serviceUnavailable('Email is not configured on this server');
   }
 
+  const recipients = (Array.isArray(to) ? to : [to]).filter(Boolean).map((email) => ({ email }));
+
   const response = await fetch(`${BREVO_API}/smtp/email`, {
     method: 'POST',
     headers: {
@@ -30,7 +32,7 @@ async function sendTransactional({ to, subject, html, text }) {
     },
     body: JSON.stringify({
       sender: { email: env.email.senderEmail, name: env.email.senderName },
-      to: [{ email: to }],
+      to: recipients,
       subject,
       htmlContent: html,
       textContent: text,

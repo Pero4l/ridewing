@@ -22,8 +22,8 @@ module.exports = (sequelize, DataTypes) => {
         unique: true,
         validate: {
           is: {
-            args: /^[a-z0-9_]{3,30}$/,
-            msg: 'Username must be 3-30 characters: lowercase letters, numbers or underscores',
+            args: /^[a-z0-9_]{2,30}$/,
+            msg: 'Username must be 2-30 characters: lowercase letters, numbers or underscores',
           },
         },
       },
@@ -56,6 +56,11 @@ module.exports = (sequelize, DataTypes) => {
       profileImage: {
         type: DataTypes.STRING(500),
         allowNull: true,
+      },
+      role: {
+        type: DataTypes.ENUM('rider', 'admin'),
+        allowNull: false,
+        defaultValue: 'rider',
       },
       // Free-form bike details (make, model, year, nickname). JSONB keeps V1
       // flexible without a migration per field.
@@ -124,6 +129,7 @@ module.exports = (sequelize, DataTypes) => {
       bio: this.bio,
       profileImage: this.profileImage,
       bikeInfo: this.bikeInfo,
+      role: this.role,
       emailVerifiedAt: this.emailVerifiedAt,
       createdAt: this.createdAt,
     };

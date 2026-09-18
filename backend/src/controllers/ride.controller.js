@@ -3,7 +3,7 @@
 const asyncHandler = require('../utils/asyncHandler');
 const rideService = require('../services/ride.service');
 const turnService = require('../services/turn.service');
-const { emitToRide } = require('../sockets/emit');
+const { emitToRide, emitToUser } = require('../sockets/emit');
 
 const create = asyncHandler(async (req, res) => {
   const ride = await rideService.create(req.user.id, req.body);
@@ -16,8 +16,8 @@ const listJoinable = asyncHandler(async (req, res) => {
 });
 
 const getRide = asyncHandler(async (req, res) => {
-  const ride = await rideService.getById(req.params.rideId);
-  res.json({ ride: ride.toJSONSafe() });
+  const { ride, relation } = await rideService.getForViewer(req.params.rideId, req.user.id);
+  res.json({ ride: ride.toJSONSafe(), relation });
 });
 
 const join = asyncHandler(async (req, res) => {
@@ -54,6 +54,29 @@ const setVoiceMode = asyncHandler(async (req, res) => {
   res.json(result);
 });
 
+const setSignal = asyncHandler(async (req, res) => {
+  const result = await rideService.setSignal(
+    req.params.rideId,
+    req.user.id,
+    req.body.kind,
+    req.body.active,
+  );
+
+  // Everyone on the ride hears and sees it — whether or not they are seated in
+  // the voice room right now.
+  const participantIds = await rideService.activeParticipantIds(req.params.rideId);
+  const payload = {
+    rideId: req.params.rideId,
+    userId: req.user.id,
+    kind: result.kind,
+    active: result.active,
+  };
+  emitToRide(req.params.rideId, 'ride:signal', payload);
+  participantIds.forEach((participantId) => emitToUser(participantId, 'ride:signal', payload));
+
+  res.json(result);
+});
+
 /**
  * ICE server configuration for the browser.
  *
@@ -74,5 +97,6 @@ module.exports = {
   leave,
   end,
   setVoiceMode,
+  setSignal,
   iceServers,
 };

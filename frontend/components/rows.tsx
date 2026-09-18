@@ -127,14 +127,23 @@ export function ConversationRow({ conversation }: { conversation: ConversationLi
         <Avatar name={avatarName} username={avatarKey} image={image} size={48} />
         {conversation.unreadCount > 0 && (
           <span className="absolute -right-0.5 -top-0.5 grid h-5 min-w-5 place-items-center rounded-full bg-emerald-500 px-1 text-[11px] font-bold text-white">
-            {conversation.unreadCount}
+            {conversation.unreadCount > 9 ? "9+" : conversation.unreadCount}
           </span>
         )}
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline justify-between gap-2">
-          <p className={`truncate ${conversation.unreadCount > 0 ? "font-semibold text-zinc-900 dark:text-zinc-50" : "font-medium text-zinc-700 dark:text-zinc-300"}`}>
-            {conversation.title}
+          <p className={`flex min-w-0 items-center gap-1.5 truncate ${conversation.unreadCount > 0 ? "font-semibold text-zinc-900 dark:text-zinc-50" : "font-medium text-zinc-700 dark:text-zinc-300"}`}>
+            <span className="truncate">{conversation.title}</span>
+            {conversation.type === "community" ? (
+              <span className="shrink-0 rounded-full bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700 dark:bg-sky-900/40 dark:text-sky-300">
+                Community
+              </span>
+            ) : (
+              <span className="shrink-0 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                Direct
+              </span>
+            )}
           </p>
           {conversation.lastMessageAt && (
             <span className="shrink-0 text-xs text-zinc-400 dark:text-zinc-500">{timeAgo(conversation.lastMessageAt)}</span>

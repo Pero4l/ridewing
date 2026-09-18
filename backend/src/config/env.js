@@ -92,6 +92,16 @@ const schema = z
     PASSWORD_RESET_TOKEN_TTL_HOURS: z.coerce.number().int().positive().max(72).default(1),
 
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
+
+    // Admin gate + inbox (see env.admin below). Kept in the schema so zod does
+    // not strip them as unknown keys.
+    ADMIN_REGISTER_TOKEN: z.string().optional(),
+    ADMIN_EMAILS: z.string().optional(),
+
+    // Web Push (VAPID). Push is inert until both keys are present.
+    VAPID_PUBLIC_KEY: z.string().optional(),
+    VAPID_PRIVATE_KEY: z.string().optional(),
+    VAPID_SUBJECT: z.string().default('mailto:ridewingteam@gmail.com'),
   })
   .superRefine((value, ctx) => {
     if (value.NODE_ENV !== 'production') return;
@@ -202,6 +212,27 @@ const env = {
     enabled: Boolean(raw.BREVO_API_KEY && raw.BREVO_SENDER_EMAIL),
     verificationTokenTtlHours: raw.EMAIL_VERIFICATION_TOKEN_TTL_HOURS,
     passwordResetTokenTtlHours: raw.PASSWORD_RESET_TOKEN_TTL_HOURS,
+  },
+
+  admin: {
+    // Gate for POST /api/auth/admin/register. Set on the backend host only;
+    // without it the endpoint returns 404 so the surface stays closed.
+    registerToken: raw.ADMIN_REGISTER_TOKEN || '',
+    // Admin notification inboxes, comma-separated. Defaults to the launch
+    // inbox so admin emails always make it somewhere in production.
+    emails: String(raw.ADMIN_EMAILS || 'ridewingteam@gmail.com')
+      .split(',')
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean),
+  },
+
+  push: {
+    // VAPID keys for Web Push. The subscription helpers are inert until both
+    // are present, so a local/dev backend with no keys never advertises push.
+    publicKey: raw.VAPID_PUBLIC_KEY || '',
+    privateKey: raw.VAPID_PRIVATE_KEY || '',
+    subject: raw.VAPID_SUBJECT || 'mailto:ridewingteam@gmail.com',
+    enabled: Boolean(raw.VAPID_PUBLIC_KEY && raw.VAPID_PRIVATE_KEY),
   },
 
   frontendUrl: raw.FRONTEND_URL,

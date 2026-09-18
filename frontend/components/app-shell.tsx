@@ -11,6 +11,7 @@ import { InlineSpinner } from "@/components/spinner";
 import { WingMark } from "@/components/auth-shell";
 import {
   BellIcon,
+  CogIcon,
   CommunitiesIcon,
   HomeIcon,
   MessagesIcon,
@@ -18,11 +19,15 @@ import {
   RidesIcon,
 } from "@/components/icons";
 
+const CREATE_HREF = "/app/posts/new";
+
 const TABS = [
   { href: "/app", label: "Today", icon: HomeIcon },
   { href: "/app/rides", label: "Rides", icon: RidesIcon },
   { href: "/app/communities", label: "Communities", icon: CommunitiesIcon },
+  { href: CREATE_HREF, label: "New post", icon: PlusIcon },
   { href: "/app/messages", label: "Messages", icon: MessagesIcon },
+  { href: "/app/settings", label: "Settings", icon: CogIcon },
 ];
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -119,6 +124,7 @@ function Header({ username }: { username: string }) {
 
 function BottomNav() {
   const pathname = usePathname();
+  const { messageUnread } = useNotifications();
   const active = useMemo(
     () =>
       TABS.find((tab) =>
@@ -128,20 +134,41 @@ function BottomNav() {
   );
 
   return (
-    <nav className="fixed inset-x-0 bottom-4 z-40 flex justify-center px-4">
+    <nav className="fixed inset-x-0 bottom-0 z-40 flex justify-center px-4 pb-4">
       <div className="flex w-full max-w-sm items-center justify-between gap-1 rounded-2xl border border-zinc-200/80 bg-white/90 p-1.5 shadow-lg shadow-zinc-950/10 backdrop-blur-xl dark:border-zinc-800 dark:bg-zinc-900/90 dark:shadow-black/40">
         {TABS.map(({ href, label, icon: Icon }) => {
           const isActive = active?.href === href;
+          const isMessages = href === "/app/messages";
+          const isCreate = href === CREATE_HREF;
+          if (isCreate) {
+            return (
+              <Link
+                key={href}
+                href={href}
+                aria-label="New post"
+                className="grid min-w-0 flex-1 place-items-center"
+              >
+                <span className="grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-md shadow-emerald-600/30 transition-transform hover:scale-105">
+                  <PlusIcon size={24} />
+                </span>
+              </Link>
+            );
+          }
           return (
             <Link
               key={href}
               href={href}
-              className={`flex min-w-0 flex-1 flex-col items-center gap-0.5 rounded-xl py-2 text-[11px] font-semibold transition-colors ${
+              className={`relative flex min-w-0 flex-1 flex-col items-center gap-0.5 rounded-xl py-2 text-[11px] font-semibold transition-colors ${
                 isActive
                   ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"
                   : "text-zinc-400 hover:text-zinc-700 dark:text-zinc-500 dark:hover:text-zinc-300"
               }`}
             >
+              {isMessages && messageUnread > 0 && (
+                <span className="absolute right-1/2 top-0.5 mr-[-14px] grid h-4 min-w-4 translate-x-1/2 place-items-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+                  {messageUnread > 9 ? "9+" : messageUnread}
+                </span>
+              )}
               <Icon size={21} />
               {label}
             </Link>

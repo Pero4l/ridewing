@@ -196,8 +196,10 @@ async function listForUser(userId) {
     };
   });
 
-  // Most recently active first; threads with no messages fall back to creation.
+  // Unread threads first, then most recently active. Threads with no messages
+  // fall back to their creation time.
   items.sort((a, b) => {
+    if ((a.unreadCount > 0) !== (b.unreadCount > 0)) return a.unreadCount > 0 ? -1 : 1;
     const left = new Date(a.lastMessageAt || 0).getTime();
     const right = new Date(b.lastMessageAt || 0).getTime();
     return right - left;

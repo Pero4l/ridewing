@@ -20,6 +20,9 @@ module.exports = (sequelize, DataTypes) => {
       },
       joinedAt: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
       leftAt: { type: DataTypes.DATE, allowNull: true },
+      // Distress signals. NULL = off, a timestamp = on (and when it was raised).
+      helpRequestedAt: { type: DataTypes.DATE, allowNull: true },
+      stoppedAt: { type: DataTypes.DATE, allowNull: true },
     },
     {
       tableName: 'ride_participants',
@@ -46,6 +49,8 @@ module.exports = (sequelize, DataTypes) => {
       status: this.status,
       joinedAt: this.joinedAt,
       leftAt: this.leftAt,
+      helpRequestedAt: this.helpRequestedAt ?? null,
+      stoppedAt: this.stoppedAt ?? null,
       user: this.user ? this.user.toPublicJSON() : undefined,
     };
   };

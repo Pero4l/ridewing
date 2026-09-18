@@ -29,6 +29,7 @@ export type Me = PrivateUser;
 export type Profile = PublicUser & {
   followerCount: number;
   followingCount: number;
+  postCount: number;
   isSelf: boolean;
   viewerIsFollowing: boolean;
   followsViewer: boolean;
@@ -105,7 +106,17 @@ export type RideParticipant = {
   status: "joined" | "left";
   joinedAt: string;
   leftAt: string | null;
+  helpRequestedAt: string | null;
+  stoppedAt: string | null;
   user: PublicUser | null;
+};
+
+export type RideRelation = {
+  creatorFollowsViewer: boolean;
+  viewerFollowsCreator: boolean;
+  isFriend: boolean;
+  mutualCommunities: { id: string; name: string; slug: string }[];
+  hasMutualRelation: boolean;
 };
 
 export type Ride = {
@@ -178,6 +189,7 @@ export type Post = {
 export type PostCommentItem = {
   id: string;
   postId: string;
+  parentId: string | null;
   content: string;
   createdAt: string;
   user: PublicUser | null;

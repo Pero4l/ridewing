@@ -11,7 +11,7 @@
 const { Op } = require('sequelize');
 
 const env = require('../config/env');
-const { RideSession, RideParticipant, Follow, User, sequelize } = require('../models');
+const { RideSession, RideParticipant, Follow, CommunityMember, Community, User, sequelize } = require('../models');
 const ApiError = require('../utils/ApiError');
 const { inviteCode } = require('../utils/slug');
 
@@ -250,10 +250,105 @@ async function activeParticipantIds(rideId) {
   return rows.map((row) => row.userId);
 }
 
+const SIGNAL_FIELDS = { help: 'helpRequestedAt', stop: 'stoppedAt' };
+
+/**
+ * Raises or clears a distress signal ("I need help" / "I've stopped").
+ *
+ * Only an active participant can signal, and the signal is stored on their
+ * participant row so it survives page reloads and re-joins. The socket layer
+ * re-broadcasts to the ride room so everyone hears the audible alert.
+ */
+async function setSignal(rideId, userId, kind, active) {
+  const field = SIGNAL_FIELDS[kind];
+  if (!field) throw ApiError.badRequest('Signal must be "help" or "stop"');
+
+  const participant = await RideParticipant.findOne({
+    where: { rideSessionId: rideId, userId, status: 'joined' },
+    include: [{ model: RideSession, as: 'rideSession', attributes: ['id', 'status'] }],
+  });
+  if (!participant) throw ApiError.notFound('You are not on this ride');
+  if (participant.rideSession.status !== 'active') throw ApiError.conflict('That ride has already ended');
+
+  await participant.update({ [field]: active ? new Date() : null });
+  return { kind, active: active ? participant[field] : null };
+}
+
+/**
+ * How the viewer is connected to the ride creator, if at all.
+ *
+ * "Mutual relation" means some shared context: they follow each other, or they
+ * both ride in the same community. When there is none, the client says so
+ * plainly rather than implying the creator is a stranger with no context.
+ */
+async function relationsWithCreator(ride, viewerId) {
+  if (!viewerId || viewerId === ride.creatorId) {
+    return {
+      creatorFollowsViewer: false,
+      viewerFollowsCreator: false,
+      isFriend: false,
+      mutualCommunities: [],
+      hasMutualRelation: true,
+    };
+  }
+
+  const [creatorFollowsViewer, viewerFollowsCreator, sharedMemberships] = await Promise.all([
+    Follow.count({ where: { followerId: ride.creatorId, followingId: viewerId } }),
+    Follow.count({ where: { followerId: viewerId, followingId: ride.creatorId } }),
+    CommunityMember.findAll({
+      where: {
+        userId: { [Op.in]: [viewerId, ride.creatorId] },
+        status: 'active',
+      },
+      attributes: ['communityId', 'userId'],
+      raw: true,
+    }),
+  ]);
+
+  const byCommunity = new Map();
+  for (const row of sharedMemberships) {
+    if (!byCommunity.has(row.communityId)) byCommunity.set(row.communityId, new Set());
+    byCommunity.get(row.communityId).add(row.userId);
+  }
+  const sharedIds = [...byCommunity.entries()]
+    .filter(([, users]) => users.size > 1)
+    .map(([communityId]) => communityId);
+
+  let mutualCommunities = [];
+  if (sharedIds.length) {
+    const communities = await Community.findAll({
+      where: { id: { [Op.in]: sharedIds } },
+      attributes: ['id', 'name', 'slug'],
+    });
+    mutualCommunities = communities.map((community) => ({
+      id: community.id,
+      name: community.name,
+      slug: community.slug,
+    }));
+  }
+
+  const isFriend = creatorFollowsViewer > 0 && viewerFollowsCreator > 0;
+  return {
+    creatorFollowsViewer: creatorFollowsViewer > 0,
+    viewerFollowsCreator: viewerFollowsCreator > 0,
+    isFriend,
+    mutualCommunities,
+    hasMutualRelation: isFriend || mutualCommunities.length > 0,
+  };
+}
+
+/** Ride detail including the viewer's relation to the creator. */
+async function getForViewer(rideId, viewerId) {
+  const ride = await getById(rideId);
+  const relation = await relationsWithCreator(ride, viewerId);
+  return { ride, relation };
+}
+
 module.exports = {
   create,
   getById,
   getByInviteCode,
+  getForViewer,
   isActiveParticipant,
   join,
   leave,
@@ -261,4 +356,5 @@ module.exports = {
   setVoiceMode,
   listJoinable,
   activeParticipantIds,
+  setSignal,
 };

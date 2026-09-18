@@ -6,18 +6,22 @@ import { onSocketEvent } from "@/lib/socket";
 
 type NotificationsContextValue = {
   unreadCount: number;
+  messageUnread: number;
   refresh: () => void;
+  refreshMessages: () => Promise<void>;
 };
 
 const NotificationsContext = createContext<NotificationsContextValue | null>(null);
 
 /**
- * Keeps the unread notification count fresh: fetched once, incremented on live
- * pushes, and fully re-synced whenever a notification page marks items read.
+ * Keeps the unread notification and message counts fresh: fetched once,
+ * re-synced on live pushes, on tab focus, and whenever a message lands.
  */
 export function NotificationsProvider({ children }: { children: ReactNode }) {
   const [unreadCount, setUnreadCount] = useState(0);
+  const [messageUnread, setMessageUnread] = useState(0);
   const mountedRef = useRef(false);
+  const messageRefreshQueuedRef = useRef(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -28,19 +32,51 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // Sums unread counts across every conversation the rider is in.
+  const refreshMessages = useCallback(async () => {
+    try {
+      const res = await api.get<{ conversations: Array<{ unreadCount: number }> }>("/api/conversations");
+      setMessageUnread(res.conversations.reduce((total, item) => total + item.unreadCount, 0));
+    } catch {
+      // Non-fatal.
+    }
+  }, []);
+
+  const queueMessageRefresh = useCallback(() => {
+    if (messageRefreshQueuedRef.current) return;
+    messageRefreshQueuedRef.current = true;
+    setTimeout(() => {
+      messageRefreshQueuedRef.current = false;
+      void refreshMessages();
+    }, 500);
+  }, [refreshMessages]);
+
   useEffect(() => {
     if (mountedRef.current) return;
     mountedRef.current = true;
     refresh();
+    void refreshMessages();
 
-    const off = onSocketEvent<{ id: string }>("notification:new", () => {
+    const offNotification = onSocketEvent<{ id: string }>("notification:new", () => {
       setUnreadCount((count) => count + 1);
     });
-    return off;
-  }, [refresh]);
+    const offMessage = onSocketEvent("message:new", () => queueMessageRefresh());
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        refresh();
+        void refreshMessages();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      offNotification();
+      offMessage();
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [refresh, refreshMessages, queueMessageRefresh]);
 
   return (
-    <NotificationsContext.Provider value={{ unreadCount, refresh }}>
+    <NotificationsContext.Provider value={{ unreadCount, messageUnread, refresh, refreshMessages }}>
       {children}
     </NotificationsContext.Provider>
   );

@@ -1,8 +1,9 @@
 "use client";
 
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
-import { forwardRef } from "react";
+import { forwardRef, useState } from "react";
 import { SpinnerIcon } from "./spinner";
+import { EyeIcon, EyeOffIcon } from "./icons";
 
 type ButtonVariant = "primary" | "secondary" | "danger" | "ghost" | "subtle";
 
@@ -76,6 +77,28 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<H
     );
   },
 );
+
+export const PasswordInput = forwardRef<HTMLInputElement, InputProps>(function PasswordInput(
+  { invalid, className = "", ...props },
+  ref,
+) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <div className="relative">
+      <Input ref={ref} invalid={invalid} type={visible ? "text" : "password"} className={`pr-11 ${className}`} {...props} />
+      <button
+        type="button"
+        onClick={() => setVisible((value) => !value)}
+        aria-label={visible ? "Hide password" : "Show password"}
+        aria-pressed={visible}
+        tabIndex={-1}
+        className="absolute inset-y-0 right-0 grid w-11 place-items-center rounded-r-xl text-zinc-400 transition-colors hover:text-zinc-700 dark:text-zinc-500 dark:hover:text-zinc-200"
+      >
+        {visible ? <EyeOffIcon size={18} /> : <EyeIcon size={18} />}
+      </button>
+    </div>
+  );
+});
 
 export function Select({ className = "", children, ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
   return (

@@ -39,7 +39,7 @@ const listComments = asyncHandler(async (req, res) => {
 });
 
 const addComment = asyncHandler(async (req, res) => {
-  const { comment } = await postService.addComment(req.params.id, req.user.id, req.body.content);
+  const { comment } = await postService.addComment(req.params.id, req.user.id, req.body.content, req.body.parentId);
   res.status(201).json({ comment });
 });
 

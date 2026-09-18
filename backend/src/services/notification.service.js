@@ -11,6 +11,9 @@
 const { Op } = require('sequelize');
 
 const { Notification, User } = require('../models');
+const emailService = require('./email.service');
+const pushService = require('./push.service');
+const env = require('../config/env');
 const logger = require('../config/logger');
 const { normalizeLimit, decodeCursor, buildPage } = require('../utils/pagination');
 
@@ -39,6 +42,22 @@ async function create({ userId, actorId = null, type, entityType = null, entityI
     notification.actor = await User.findByPk(actorId);
   }
 
+  // Admin notifications fire on their own Brevo seam — fire-and-forget, so a
+  // failed (or unconfigured) transactional send never touches the notification row.
+  if (env.email.enabled && env.admin.emails.length) {
+    queueMicrotask(async () => {
+      try {
+        await emailService.sendTransactional({
+          to: env.admin.emails,
+          subject: `RideWing admin alert: ${type}`,
+          html: `<p>New notification for user ${userId} — type <strong>${type}</strong>.</p>`,
+        });
+      } catch (error) {
+        logger.warn({ error: error.message }, 'admin notification email failed');
+      }
+    });
+  }
+
   if (emitter) {
     try {
       emitter(userId, notification.toJSONSafe());
@@ -48,7 +67,49 @@ async function create({ userId, actorId = null, type, entityType = null, entityI
     }
   }
 
+  // Web Push is a separate delivery lane for when the rider is not on a socket.
+  // Fire-and-forget like the admin mail — a dead device must never affect the row.
+  if (pushService.enabled()) {
+    queueMicrotask(async () => {
+      try {
+        await pushService.sendToUser(userId, buildPushPayload(notification));
+      } catch (error) {
+        logger.warn({ error: error.message, userId }, 'web push delivery failed');
+      }
+    });
+  }
+
   return notification;
+}
+
+/**
+ * The web push payload mirrors what the in-app notification row describes. The
+ * service worker renders the full message client-side, so no extra fetch is
+ * needed at show time; `siteNotifications` is the wire shape the worker reads.
+ */
+function buildPushPayload(notification) {
+  const actor = notification.actor?.displayName ?? notification.actor?.username ?? "Someone";
+  const { type, entityType, entityId, id, data } = notification;
+
+  const copy = { title: "RideWing", body: "You have a new notification" };
+  switch (type) {
+    case 'post_like': copy.title = `${actor} liked your post`; break;
+    case 'post_comment': copy.title = `${actor} commented on your post`; break;
+    case 'comment_reply': copy.title = `${actor} replied to your comment`; break;
+    case 'post_share': copy.title = `${actor} shared your post`; break;
+    case 'follow': copy.title = `${actor} followed you`; break;
+    case 'community_join_request': copy.title = `${actor} wants to join your community`; break;
+    case 'community_join_approved': copy.title = 'Your community request was approved'; break;
+    case 'community_join_rejected': copy.title = 'Your community request was declined'; break;
+    case 'community_role_changed': copy.title = 'Your community role changed'; break;
+    case 'ride_invite': copy.title = `${actor} invited you to a ride`; break;
+    case 'message': copy.title = `${actor} sent you a message`; break;
+    default: break;
+  }
+
+  return {
+    siteNotifications: [{ ...copy, type, entityType, entityId, notificationId: id, data }],
+  };
 }
 
 /** Fan-out helper for community events. */

@@ -221,6 +221,7 @@ async function listComments(postId, { limit, cursor } = {}) {
   const items = rows.map((row) => ({
     id: row.id,
     postId: row.postId,
+    parentId: row.parentId ?? null,
     content: row.content,
     createdAt: row.createdAt.toISOString(),
     user: row.user ? row.user.toPublicJSON() : null,
@@ -235,7 +236,7 @@ async function listComments(postId, { limit, cursor } = {}) {
   };
 }
 
-async function addComment(postId, userId, rawContent) {
+async function addComment(postId, userId, rawContent, parentId) {
   const content = String(rawContent ?? '').trim();
   if (!content) throw ApiError.badRequest('Comment cannot be empty');
   if (content.length > 1000) throw ApiError.badRequest('Comment cannot exceed 1000 characters');
@@ -244,10 +245,17 @@ async function addComment(postId, userId, rawContent) {
     const post = await Post.findByPk(postId, { transaction });
     if (!post) throw ApiError.notFound('Post not found');
 
-    const comment = await PostComment.create({ postId, userId, content }, { transaction });
+    let parent = null;
+    if (parentId) {
+      parent = await PostComment.findByPk(parentId, { transaction });
+      if (!parent) throw ApiError.badRequest('The comment being replied to no longer exists');
+      if (parent.postId !== postId) throw ApiError.badRequest('Cannot reply across different posts');
+    }
+
+    const comment = await PostComment.create({ postId, userId, content, parentId: parent?.id ?? null }, { transaction });
     await Post.increment('commentCount', { by: 1, where: { id: postId }, transaction });
 
-    transaction.afterCommit(() =>
+    transaction.afterCommit(() => {
       notificationService.create({
         userId: post.userId,
         actorId: userId,
@@ -255,8 +263,20 @@ async function addComment(postId, userId, rawContent) {
         entityType: 'post',
         entityId: postId,
         data: { postId, commentId: comment.id },
-      }),
-    );
+      });
+      // A reply notifies the author of the comment being replied to. create()
+      // skips actors notifying themselves.
+      if (parent && parent.userId !== post.userId) {
+        notificationService.create({
+          userId: parent.userId,
+          actorId: userId,
+          type: 'comment_reply',
+          entityType: 'comment',
+          entityId: parent.id,
+          data: { postId, commentId: comment.id },
+        });
+      }
+    });
 
     return { comment };
   });
@@ -293,6 +313,47 @@ async function remove(postId, userId) {
   return { deleted: true };
 }
 
+/**
+ * A rider's profile collections: posts they wrote, posts they shared (reposts),
+ * and posts that tag them (@username in the text).
+ */
+async function userPosts(username, { tab = 'posts' } = {}) {
+  const user = await User.findOne({ where: { username: String(username).toLowerCase() } });
+  if (!user) throw ApiError.notFound('Rider not found');
+
+  let rows;
+  if (tab === 'shared') {
+    const shares = await PostShare.findAll({
+      where: { userId: user.id },
+      attributes: ['postId'],
+      order: [['createdAt', 'DESC']],
+      limit: 100,
+    });
+    const postIds = shares.map((share) => share.postId);
+    rows = postIds.length
+      ? await Post.findAll({ where: { id: { [Op.in]: postIds } }, include: [{ model: User, as: 'user' }] })
+      : [];
+    rows.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  } else if (tab === 'tagged') {
+    rows = await Post.findAll({
+      where: { content: { [Op.iLike]: `%@${user.username}%` } },
+      include: [{ model: User, as: 'user' }],
+      order: [['createdAt', 'DESC'], ['id', 'DESC']],
+      limit: 100,
+    });
+  } else {
+    rows = await Post.findAll({
+      where: { userId: user.id },
+      include: [{ model: User, as: 'user' }],
+      order: [['createdAt', 'DESC'], ['id', 'DESC']],
+      limit: 100,
+    });
+  }
+
+  const items = rows.map((post) => toJSON(post, { viewerLiked: false }));
+  return { items, pageInfo: { hasMore: false, nextCursor: null } };
+}
+
 function toJSON(post, { viewerLiked }) {
   return {
     id: post.id,
@@ -309,4 +370,4 @@ function toJSON(post, { viewerLiked }) {
   };
 }
 
-module.exports = { create, update, feed, getPost, like, unlike, listComments, addComment, share, remove, canEditMedia };
+module.exports = { create, update, feed, getPost, like, unlike, listComments, addComment, share, remove, userPosts, canEditMedia };

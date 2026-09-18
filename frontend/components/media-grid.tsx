@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { PostMedia } from "@/lib/types";
 import { VideoIcon, XIcon } from "@/components/icons";
 
@@ -27,20 +27,23 @@ function ImageTile({ item, spanCount }: { item: PostMedia; spanCount: number }) 
   const span = spanCount === 4 || spanCount > 5 ? "col-span-2 row-span-2" : "";
   const firstBig = spanCount === 4 || spanCount === 7 || spanCount === 8 ? "first:col-span-2 first:row-span-2" : "";
   return (
-    <button
-      type="button"
-      onClick={() => setOpen(true)}
-      className={`group relative aspect-square overflow-hidden rounded-lg bg-zinc-100 dark:bg-zinc-800 ${span} ${firstBig}`}
-    >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={item.url}
-        alt="Post photo"
-        loading="lazy"
-        className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-      />
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className={`group relative aspect-square touch-pan-y overflow-hidden rounded-lg bg-zinc-100 select-none dark:bg-zinc-800 ${span} ${firstBig}`}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={item.url}
+          alt="Post photo"
+          loading="lazy"
+          draggable={false}
+          className="h-full w-full touch-pan-y object-cover transition-transform duration-300 group-hover:scale-105"
+        />
+      </button>
       {open && <Lightbox url={item.url} onClose={() => setOpen(false)} />}
-    </button>
+    </>
   );
 }
 
@@ -62,23 +65,43 @@ function VideoTile({ item }: { item: PostMedia }) {
 }
 
 function Lightbox({ url, onClose }: { url: string; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [onClose]);
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
+      aria-label="Photo preview"
       onClick={onClose}
     >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={url} alt="Post photo" className="max-h-[90vh] max-w-full rounded-xl object-contain" />
       <button
         type="button"
         onClick={onClose}
-        aria-label="Close"
-        className="absolute top-4 right-4 grid h-10 w-10 place-items-center rounded-full bg-white/10 text-white hover:bg-white/20"
+        aria-label="Close photo preview"
+        className="absolute top-4 right-4 z-20 grid h-11 w-11 place-items-center rounded-full bg-white/15 text-white shadow-lg backdrop-blur-sm hover:bg-white/25 active:scale-95"
       >
-        <XIcon size={20} />
+        <XIcon size={22} />
       </button>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={url}
+        alt="Post photo"
+        draggable={false}
+        onClick={(event) => event.stopPropagation()}
+        className="max-h-[90vh] max-w-full touch-pan-y rounded-xl object-contain select-none"
+      />
     </div>
   );
 }

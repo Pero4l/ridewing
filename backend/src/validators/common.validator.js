@@ -16,9 +16,9 @@ const username = z
   .string()
   .trim()
   .toLowerCase()
-  .min(3, 'Username must be at least 3 characters')
+  .min(2, 'Username must be at least 2 characters')
   .max(30, 'Username must be at most 30 characters')
-  .regex(/^[a-z0-9_]+$/, 'Username may contain only letters, numbers and underscores');
+  .regex(/^[a-z0-9_]+$/, 'Username may contain only lowercase letters, numbers and underscores');
 
 const email = z.string().trim().toLowerCase().email('Must be a valid email address').max(255);
 
@@ -31,15 +31,18 @@ const phone = z
   });
 
 /**
- * Password policy: length is the dominant factor in resistance to guessing, so we
- * require a genuinely long secret rather than mandating symbol classes that push
- * people toward predictable substitutions. The 72-byte ceiling is bcrypt's own
- * input limit — anything beyond it is silently ignored by the algorithm, so we
- * reject instead of letting a user believe a longer passphrase is protecting them.
+ * Password policy: at least 8 characters ... enabled by the product owner.
+ * Requires length, an uppercase letter, a lowercase letter and a digit so weak
+ * passwords are rejected at the door. The 72-byte ceiling is bcrypt's own input
+ * limit — anything beyond it is silently ignored by the algorithm, so we reject
+ * instead of letting a user believe a longer passphrase is protecting them.
  */
 const password = z
   .string()
-  .min(10, 'Password must be at least 10 characters')
+  .min(6, 'Password must be at least 6 characters')
+  .regex(/[a-z]/, 'Password must include a lowercase letter')
+  .regex(/[A-Z]/, 'Password must include an uppercase letter')
+  .regex(/\d/, 'Password must include a number')
   .refine((value) => Buffer.byteLength(value, 'utf8') <= 72, {
     message: 'Password must be at most 72 bytes',
   })

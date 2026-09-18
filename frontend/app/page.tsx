@@ -136,8 +136,8 @@ function Features() {
     },
     {
       icon: <LockGlyph />,
-      title: "Private by design",
-      body: "Password-hashed, cookie-backed sessions and scoped tokens. No social graph sold to anyone, ever.",
+      title: "Free, no ads, no noise",
+      body: "RideWing stays free to ride and ad-free. Your rides are yours — we don't sell your data to anyone, ever.",
     },
   ];
 

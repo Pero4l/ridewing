@@ -27,6 +27,7 @@ const edit = create;
 const comment = z
   .object({
     content: z.string().trim().min(1, 'Comment cannot be empty').max(1000),
+    parentId: z.string().uuid('Must be a valid comment id').optional(),
   })
   .strict();
 

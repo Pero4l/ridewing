@@ -4,7 +4,7 @@
 
 const { Op } = require('sequelize');
 
-const { User, Follow } = require('../models');
+const { User, Follow, Post } = require('../models');
 const ApiError = require('../utils/ApiError');
 const { normalizeLimit } = require('../utils/pagination');
 
@@ -30,11 +30,12 @@ async function getById(id) {
 async function getProfile(username, viewerId) {
   const user = await getByUsername(username);
 
-  const [followerCount, followingCount, viewerFollows, followsViewer] = await Promise.all([
+  const [followerCount, followingCount, viewerFollows, followsViewer, postCount] = await Promise.all([
     Follow.count({ where: { followingId: user.id } }),
     Follow.count({ where: { followerId: user.id } }),
     viewerId ? Follow.count({ where: { followerId: viewerId, followingId: user.id } }) : 0,
     viewerId ? Follow.count({ where: { followerId: user.id, followingId: viewerId } }) : 0,
+    Post.count({ where: { userId: user.id } }),
   ]);
 
   const isSelf = viewerId === user.id;
@@ -43,6 +44,7 @@ async function getProfile(username, viewerId) {
     ...(isSelf ? user.toPrivateJSON() : user.toPublicJSON()),
     followerCount,
     followingCount,
+    postCount,
     isSelf,
     viewerIsFollowing: viewerFollows > 0,
     followsViewer: followsViewer > 0,

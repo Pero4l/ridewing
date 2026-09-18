@@ -22,6 +22,15 @@ const tokenService = require('./token.service');
 // whether or not the account exists. Nothing a client can send will ever match it.
 const DUMMY_HASH = bcrypt.hashSync(crypto.randomBytes(32).toString('hex'), env.auth.bcryptRounds);
 
+/** Constant-time comparison so a wrong admin token does not leak timing. */
+function secretsMatch(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  const left = Buffer.from(a);
+  const right = Buffer.from(b);
+  if (left.length !== right.length) return false;
+  return crypto.timingSafeEqual(left, right);
+}
+
 const normalizeEmail = (value) => (value ? String(value).trim().toLowerCase() : null);
 const normalizeUsername = (value) => (value ? String(value).trim().toLowerCase() : null);
 const normalizePhone = (value) => (value ? String(value).replace(/[\s()-]/g, '') : null);
@@ -34,7 +43,7 @@ async function hashPassword(plain) {
  * Creates an account. Uniqueness is enforced by database constraints — we do not
  * pre-check with a SELECT, which would race under concurrent signups.
  */
-async function register({ username, email, phone, password, displayName, bio, bikeInfo }, { userAgent } = {}) {
+async function register({ username, email, phone, password, displayName, bio, bikeInfo }, { userAgent } = {}, options = {}) {
   const passwordHash = await hashPassword(password);
 
   const result = await sequelize.transaction(async (transaction) => {
@@ -47,6 +56,7 @@ async function register({ username, email, phone, password, displayName, bio, bi
         displayName: String(displayName || username).trim(),
         bio: bio ?? null,
         bikeInfo: bikeInfo ?? {},
+        ...(options.role ? { role: options.role } : {}),
       },
       { transaction },
     );
@@ -133,8 +143,22 @@ async function changePassword(userId, { currentPassword, newPassword }) {
   });
 }
 
+/** Creates an admin account. Only succeeds when the caller presents a token that
+ * matches the ADMIN_REGISTER_TOKEN secret and the token is configured at all —
+ * otherwise we 404 so the endpoint is indistinguishable from a missing route. */
+async function registerAdmin(payload, { adminToken, userAgent } = {}) {
+  if (!env.admin.registerToken || !adminToken) {
+    throw ApiError.notFound('Not found');
+  }
+  if (!secretsMatch(adminToken, env.admin.registerToken)) {
+    throw ApiError.unauthorized('Invalid admin registration token');
+  }
+  return register(payload, { userAgent }, { role: 'admin' });
+}
+
 module.exports = {
   register,
+  registerAdmin,
   login,
   refresh,
   logout,

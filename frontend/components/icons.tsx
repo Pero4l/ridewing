@@ -270,3 +270,33 @@ export const VerifiedBadgeIcon = (p: IconProps) => (
     <path d="m8.5 12 2.4 2.4L15.5 9.5" />
   </svg>
 );
+
+export const EyeIcon = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" />
+    <circle cx="12" cy="12" r="3" />
+  </svg>
+);
+
+export const EyeOffIcon = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M4 4l16 16" />
+    <path d="M9.9 5.2A10.1 10.1 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a17.6 17.6 0 0 1-2.7 3.4M6.2 6.4A17 17 0 0 0 2.5 12S6 18.5 12 18.5c1.9 0 3.5-.6 4.9-1.4" />
+    <path d="M10 10a2.6 2.6 0 0 0 3.6 3.6" />
+  </svg>
+);
+
+export const HelpIcon = (p: IconProps) => (
+  <svg {...base(p)}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M9.4 9a2.7 2.7 0 1 1 3.4 2.6c-.8.4-1.3 1-1.3 1.9" />
+    <path d="M12 17.3h.01" strokeWidth={2.5} />
+  </svg>
+);
+
+export const StopIcon = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M9 3.5 3.5 9v6L9 20.5h6L20.5 15V9L15 3.5Z" />
+    <path d="M12 8.5v3.5M12 15.5h.01" strokeWidth={2.5} />
+  </svg>
+);
