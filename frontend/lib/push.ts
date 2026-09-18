@@ -1,5 +1,7 @@
 "use client";
 
+import { api } from "./api";
+
 /**
  * Web Push (RFC 8030) helpers.
  *
@@ -55,21 +57,16 @@ export async function subscribeToPush(): Promise<boolean> {
     const raw = subscription.toJSON();
     if (!raw.endpoint || !raw.keys?.p256dh || !raw.keys?.auth) return false;
 
-    const res = await fetch(
-      `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000"}/api/push/subscribe`,
-      {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          endpoint: raw.endpoint,
-          p256dh: raw.keys.p256dh,
-          auth: raw.keys.auth,
-          deviceId: deviceId(),
-        }),
-      },
-    );
-    return res.ok;
+    // Goes through the authenticated wrapper so the request carries the Bearer
+    // token (the push routes require auth) and re-drives the refresh flow on a
+    // stale token, just like every other API call.
+    await api.post("/api/push/subscribe", {
+      endpoint: raw.endpoint,
+      p256dh: raw.keys.p256dh,
+      auth: raw.keys.auth,
+      deviceId: deviceId(),
+    });
+    return true;
   } catch {
     return false;
   }
@@ -81,11 +78,8 @@ export async function unsubscribeFromPush(): Promise<boolean> {
     const registration = await getRegistration();
     const subscription = await registration.pushManager.getSubscription();
     if (subscription) await subscription.unsubscribe();
-    const res = await fetch(
-      `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000"}/api/push/subscribe`,
-      { method: "DELETE", credentials: "include", body: JSON.stringify({ deviceId: deviceId() }) },
-    );
-    return res.status === 204;
+    await api.delete("/api/push/subscribe", { body: { deviceId: deviceId() } });
+    return true;
   } catch {
     return false;
   }

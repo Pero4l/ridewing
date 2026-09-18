@@ -43,7 +43,12 @@ app.use(
         baseUri: ["'none'"],
       },
     },
-    crossOriginResourcePolicy: { policy: 'same-site' },
+    // Public JSON API: the frontend runs on a different site (e.g. Vercel vs
+    // Render), so cross-site reading must be allowed. CORP same-site here would
+    // independently block every response from being read cross-site, regardless
+    // of CORS — JSON is not HTML, so there is nothing to protect by forbidding
+    // embedding.
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
     referrerPolicy: { policy: 'no-referrer' },
     hsts: env.isProduction ? { maxAge: 31536000, includeSubDomains: true } : false,
   }),
