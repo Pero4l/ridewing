@@ -185,7 +185,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     refreshingRef.current = true;
     try {
       if (getAccessToken()) {
-        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000"}/api/auth/me`, {
+        const res = await fetch("/api/auth/me", {
           headers: { Authorization: `Bearer ${getAccessToken()}` },
           credentials: "include",
         });

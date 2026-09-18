@@ -2,6 +2,9 @@
 
 import type { ApiErrorBody, ConnectedUser } from "./types";
 
+// The backend origin (used for socket + uploads, which need to go cross-site).
+// HTTP API calls are same-origin: next.config rewrites /api/* to this backend,
+// so the refresh cookie is first-party and works everywhere.
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
 // The access token also lives in sessionStorage (this tab only), so a reload
@@ -110,7 +113,7 @@ async function request<T>(path: string, { method = "GET", body, skipAuth = false
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (accessToken && !skipAuth) headers.Authorization = `Bearer ${accessToken}`;
 
-  const response = await fetch(`${API_URL}${path}`, {
+  const response = await fetch(path, {
     method,
     headers,
     credentials: "include",
