@@ -146,12 +146,21 @@ function Header({ slug }: { slug: string }) {
           </div>
           {community.owner && (
             <Link href={`/app/profile/${community.owner.username}`}>
-              <Avatar name={community.owner.displayName} username={community.owner.username} size={40} />
+              <Avatar
+                name={community.owner.displayName}
+                username={community.owner.username}
+                image={community.owner.profileImage ?? null}
+                size={40}
+              />
             </Link>
           )}
         </div>
 
-        {community.bio && <p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-300">{community.bio}</p>}
+        <CommunityBio
+          community={community}
+          slug={slug}
+          onChanged={() => detail.reload()}
+        />
 
         <div className="mt-4 flex flex-wrap items-center gap-2">
           {isMember ? (
@@ -221,6 +230,78 @@ function Header({ slug }: { slug: string }) {
         </div>
       ) : (
         <p className="px-4 py-4 text-sm text-zinc-400">No members yet.</p>
+      )}
+    </div>
+  );
+}
+
+function CommunityBio({
+  community,
+  slug,
+  onChanged,
+}: {
+  community: Community;
+  slug: string;
+  onChanged: () => void;
+}) {
+  const canEdit = community.viewerRole === "owner" || community.viewerRole === "admin";
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(community.bio ?? "");
+  const [busy, setBusy] = useState(false);
+  const toast = useToast();
+
+  async function save() {
+    setBusy(true);
+    try {
+      await api.patch(`/api/communities/${slug}`, { bio: value.trim() || null });
+      toast.success("Description updated");
+      setEditing(false);
+      onChanged();
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : "Could not update description");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (editing) {
+    return (
+      <div className="mt-3 space-y-2">
+        <Textarea
+          rows={3}
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+          maxLength={500}
+          placeholder="Describe what your community is about…"
+        />
+        <div className="flex gap-2">
+          <Button size="sm" onClick={() => void save()} loading={busy}>
+            Save
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              setEditing(false);
+              setValue(community.bio ?? "");
+            }}
+          >
+            Cancel
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-3 flex items-start justify-between gap-3">
+      <p className="text-sm leading-relaxed text-zinc-600 dark:text-zinc-300">
+        {community.bio || (canEdit ? "No description yet." : "")}
+      </p>
+      {canEdit && (
+        <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>
+          Edit description
+        </Button>
       )}
     </div>
   );

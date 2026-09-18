@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useSession } from "@/lib/auth";
 import { ApiError } from "@/lib/api";
+import { useToast } from "@/components/toast";
 import { AuthLink, AuthShell } from "@/components/auth-shell";
 import { Button, Field, Input, PasswordInput } from "@/components/ui";
 
@@ -19,6 +20,7 @@ export default function LoginPage() {
 function LoginInner() {
   const { login } = useSession();
   const router = useRouter();
+  const toast = useToast();
   const searchParams = useSearchParams();
   const next = searchParams.get("next");
 
@@ -46,6 +48,7 @@ function LoginInner() {
     setSubmitting(true);
     try {
       await login(identifier.trim(), password);
+      toast.success("Signed in. Welcome back!");
       router.replace(redirectTo);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not sign in. Try again.");

@@ -38,7 +38,7 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: true,
         unique: true,
         validate: {
-          is: { args: /^\+[1-9]\d{6,18}$/, msg: 'Phone must be in E.164 format, e.g. +14155550123' },
+          is: { args: /^(\+[1-9]\d{6,18}|\d{7,15})$/, msg: 'Enter a valid phone number, e.g. 09031234567 or +14155550123' },
         },
       },
       passwordHash: {

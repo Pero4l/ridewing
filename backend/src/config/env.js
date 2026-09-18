@@ -88,8 +88,8 @@ const schema = z
     BREVO_SENDER_EMAIL: optionalString(),
     BREVO_SENDER_NAME: z.string().min(1).default('RideWing'),
     FRONTEND_URL: z.string().url().default('http://localhost:3000'),
-    EMAIL_VERIFICATION_TOKEN_TTL_HOURS: z.coerce.number().int().positive().max(72).default(24),
-    PASSWORD_RESET_TOKEN_TTL_HOURS: z.coerce.number().int().positive().max(72).default(1),
+    EMAIL_VERIFICATION_TOKEN_TTL_MINUTES: z.coerce.number().positive().max(4320).default(15),
+    PASSWORD_RESET_TOKEN_TTL_MINUTES: z.coerce.number().positive().max(4320).default(5),
 
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
 
@@ -210,8 +210,8 @@ const env = {
     senderEmail: raw.BREVO_SENDER_EMAIL,
     senderName: raw.BREVO_SENDER_NAME,
     enabled: Boolean(raw.BREVO_API_KEY && raw.BREVO_SENDER_EMAIL),
-    verificationTokenTtlHours: raw.EMAIL_VERIFICATION_TOKEN_TTL_HOURS,
-    passwordResetTokenTtlHours: raw.PASSWORD_RESET_TOKEN_TTL_HOURS,
+    verificationTokenTtlMinutes: raw.EMAIL_VERIFICATION_TOKEN_TTL_MINUTES,
+    passwordResetTokenTtlMinutes: raw.PASSWORD_RESET_TOKEN_TTL_MINUTES,
   },
 
   admin: {

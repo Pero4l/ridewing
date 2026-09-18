@@ -29,15 +29,6 @@ function generateRawToken() {
   return crypto.randomBytes(32).toString('base64url');
 }
 
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
-}
-
 async function revokeOutstanding(userId) {
   await PasswordResetToken.update(
     { usedAt: new Date(), expiresAt: new Date(0) },
@@ -70,29 +61,31 @@ async function requestReset({ email }) {
 
   await revokeOutstanding(user.id);
   const rawToken = generateRawToken();
-  const expiresAt = new Date(Date.now() + env.email.passwordResetTokenTtlHours * 60 * 60 * 1000);
+  const expiresAt = new Date(Date.now() + env.email.passwordResetTokenTtlMinutes * 60 * 1000);
   await PasswordResetToken.create({ userId: user.id, tokenHash: hash(rawToken), expiresAt });
 
   const resetUrl = new URL('/reset-password', env.frontendUrl);
   resetUrl.searchParams.set('token', rawToken);
+  const ttlMinutes = env.email.passwordResetTokenTtlMinutes;
 
   try {
     await emailService.sendTransactional({
       to: user.email,
       subject: 'Reset your RideWing password',
-      text: `Hi ${user.displayName},\n\nWe received a request to reset the password for your RideWing account. Visit the link below to set a new one:\n${resetUrl.toString()}\n\nThis link expires in ${env.email.passwordResetTokenTtlHours} hour(s) and can only be used once. If you did not request this, you can safely ignore this email.\n`,
-      html: [
-        '<div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto">',
-        '<h2 style="margin:0">Reset your password</h2>',
-        `<p>Hi ${escapeHtml(user.displayName)},</p>`,
-        `<p>We received a request to reset the password for your RideWing account. Click the button below to set a new one.</p>`,
-        '<p style="margin:24px 0;text-align:center">',
-        `<a href="${resetUrl.toString()}" style="background:#059669;color:#fff;padding:12px 20px;border-radius:10px;text-decoration:none;font-weight:600">Reset password</a>`,
-        '</p>',
-        `<p style="font-size:12px;color:#71717a;word-break:break-all">${resetUrl.toString()}</p>`,
-        `<p style="font-size:12px;color:#71717a">This link expires in ${env.email.passwordResetTokenTtlHours} hour(s) and can only be used once. If you did not request this, you can safely ignore this email.</p>`,
-        '</div>',
-      ].join(''),
+      text:
+        `Hi ${user.displayName},\n\n` +
+        `We received a request to reset the password for your RideWing account. ` +
+        `Open this link to choose a new one (valid for ${ttlMinutes} minutes, one time only):\n\n${resetUrl.toString()}\n\n` +
+        `If you did not request this, you can ignore this email.\n`,
+      html: emailService.renderHtml({
+        title: 'Reset your password',
+        preview: `Hi ${user.displayName},`,
+        paragraphs: [
+          'We received a request to reset the password for your RideWing account. Use the button below to choose a new one.',
+          `This link is valid for ${ttlMinutes} minutes and can only be used once. If you did not request this, you can ignore this email.`,
+        ],
+        button: { href: resetUrl.toString(), label: 'Reset password' },
+      }),
     });
   } catch (error) {
     await PasswordResetToken.destroy({ where: { userId: user.id } });

@@ -33,6 +33,39 @@ export class ApiError extends Error {
 
 export const AUTH_EXPIRED_EVENT = "ridewing:auth-expired";
 
+export const IDLE_LOGOUT_MS = 20 * 60 * 1000;
+
+const LAST_ACTIVE_KEY = "ridewing:last-active";
+
+/**
+ * Idle tracking lets the app tell "switched away for a moment" apart from
+ * "genuinely walked away". Stamps are throttled to 30s so high-frequency events
+ * like scroll never hammer localStorage.
+ */
+export function markActive() {
+  if (typeof window === "undefined") return;
+  try {
+    const now = Date.now();
+    const previous = Number(localStorage.getItem(LAST_ACTIVE_KEY) ?? 0);
+    if (now - previous > 30_000) {
+      localStorage.setItem(LAST_ACTIVE_KEY, String(now));
+    }
+  } catch {
+    // Storage unavailable (private mode) — tracking is best-effort.
+  }
+}
+
+export function idleMs(): number {
+  if (typeof window === "undefined") return 0;
+  try {
+    const raw = localStorage.getItem(LAST_ACTIVE_KEY);
+    if (!raw) return 0;
+    return Math.max(0, Date.now() - Number(raw));
+  } catch {
+    return 0;
+  }
+}
+
 function dispatchExpired() {
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent(AUTH_EXPIRED_EVENT));
@@ -46,6 +79,8 @@ type RequestOptions = {
 };
 
 async function request<T>(path: string, { method = "GET", body, skipAuth = false }: RequestOptions = {}): Promise<T> {
+  markActive();
+
   const headers: Record<string, string> = {};
 
   if (body !== undefined) headers["Content-Type"] = "application/json";
@@ -119,6 +154,23 @@ async function tryRefresh(): Promise<boolean> {
 
 export function refreshSession(): Promise<boolean> {
   return tryRefresh();
+}
+
+/**
+ * Same refresh exchange but without the logout side effects: a failed attempt
+ * returns `false` and leaves the session decision to the caller (used when a
+ * backgrounded tab comes back to the foreground, where a transient network
+ * blip should not bounce the user to the login screen).
+ */
+export async function refreshSessionGentle(): Promise<boolean> {
+  try {
+    const session = await request<ConnectedUser>("/api/auth/refresh", { method: "POST", skipAuth: true });
+    setAccessToken(session.accessToken);
+    window.dispatchEvent(new CustomEvent("ridewing:session", { detail: session }));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function postLogin(identifier: string, password: string) {

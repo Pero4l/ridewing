@@ -24,6 +24,12 @@ const searchQuery = z
   .merge(pagination.partial())
   .strict();
 
-const listQuery = pagination.strict();
+// The gallery tabs are client-driven; the server accepts the value so it does
+// not 400 on a tab switch, then `userPosts` falls back to 'posts' for tabs it
+// does not implement.
+const listQuery = z
+  .object({ tab: z.enum(['posts', 'tagged', 'shared']).optional() })
+  .merge(pagination.strict())
+  .strict();
 
 module.exports = { usernameParam, updateProfile, searchQuery, listQuery };

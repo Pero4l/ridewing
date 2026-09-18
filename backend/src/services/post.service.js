@@ -22,6 +22,7 @@ const {
 const ApiError = require('../utils/ApiError');
 const { normalizeLimit, decodeCursor, buildPage } = require('../utils/pagination');
 const notificationService = require('./notification.service');
+const emailService = require('./email.service');
 
 const MAX_MEDIA_ITEMS = 9;
 
@@ -81,6 +82,20 @@ async function create(userId, { content, media: rawMedia }) {
 
   const post = await Post.create({ userId, content: contentText, media, likeCount: 0, commentCount: 0, shareCount: 0 });
   post.user = await User.findByPk(userId);
+
+  emailService.alertAdmins({
+    subject: 'RideWing: new post created',
+    text: `A new post was published by @${post.user?.username ?? userId}.`,
+    html: emailService.renderHtml({
+      title: 'New post published',
+      paragraphs: [
+        `Author: @${post.user?.username ?? userId}`,
+        `Content: ${contentText.slice(0, 200) || '—'}`,
+        `Media items: ${media.length}`,
+      ],
+    }),
+  });
+
   return toJSON(post, { viewerLiked: false });
 }
 
@@ -255,6 +270,10 @@ async function addComment(postId, userId, rawContent, parentId) {
     const comment = await PostComment.create({ postId, userId, content, parentId: parent?.id ?? null }, { transaction });
     await Post.increment('commentCount', { by: 1, where: { id: postId }, transaction });
 
+    // Attach the author before the transaction lands so the freshly created
+    // comment shows a real name immediately instead of a "Someone" placeholder.
+    const author = await User.findByPk(userId, { transaction });
+
     transaction.afterCommit(() => {
       notificationService.create({
         userId: post.userId,
@@ -278,7 +297,16 @@ async function addComment(postId, userId, rawContent, parentId) {
       }
     });
 
-    return { comment };
+    return {
+      comment: {
+        id: comment.id,
+        postId: comment.postId,
+        parentId: comment.parentId ?? null,
+        content: comment.content,
+        createdAt: comment.createdAt.toISOString(),
+        user: author ? author.toPublicJSON() : null,
+      },
+    };
   });
 }
 

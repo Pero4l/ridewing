@@ -25,6 +25,7 @@ const ApiError = require('../utils/ApiError');
 const { uniqueSlug } = require('../utils/slug');
 const { normalizeLimit, decodeCursor, buildPage } = require('../utils/pagination');
 const notificationService = require('./notification.service');
+const emailService = require('./email.service');
 const emailVerificationService = require('./emailVerification.service');
 
 const RANK = { owner: 3, admin: 2, moderator: 1, member: 0 };
@@ -84,8 +85,8 @@ async function create(ownerId, { name, bio, image, joinPolicy }) {
     return Boolean(existing);
   });
 
-  return sequelize.transaction(async (transaction) => {
-    const community = await Community.create(
+  const community = await sequelize.transaction(async (transaction) => {
+    const created = await Community.create(
       {
         name: String(name).trim(),
         slug,
@@ -100,14 +101,14 @@ async function create(ownerId, { name, bio, image, joinPolicy }) {
     );
 
     await CommunityMember.create(
-      { communityId: community.id, userId: ownerId, role: 'owner', status: 'active' },
+      { communityId: created.id, userId: ownerId, role: 'owner', status: 'active' },
       { transaction },
     );
 
     // Every community owns exactly one chat thread, created up front so there is
     // no "first message creates the room" special case.
     const conversation = await Conversation.create(
-      { type: 'community', communityId: community.id },
+      { type: 'community', communityId: created.id },
       { transaction },
     );
     await ConversationMember.create(
@@ -115,9 +116,25 @@ async function create(ownerId, { name, bio, image, joinPolicy }) {
       { transaction },
     );
 
-    community.owner = await User.findByPk(ownerId, { transaction });
-    return community;
+created.owner = await User.findByPk(ownerId, { transaction });
+    return created;
   });
+
+  // Fire-and-forget so mail relay problems never roll back a community creation.
+  emailService.alertAdmins({
+    subject: `RideWing: new community created (${community.name})`,
+    text: `A new community was created: ${community.name} (slug ${community.slug}).`,
+    html: emailService.renderHtml({
+      title: 'New community created',
+      paragraphs: [
+        `Name: ${community.name}`,
+        `Owner: ${community.owner?.displayName ?? ownerId}`,
+        `Slug: ${community.slug}`,
+      ],
+    }),
+  });
+
+  return community;
 }
 
 async function update(communityId, actorId, payload) {

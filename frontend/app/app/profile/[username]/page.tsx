@@ -10,7 +10,7 @@ import { FollowButton } from "@/components/follow-button";
 import { Avatar } from "@/components/avatar";
 import { Badge, EmptyState, PageHeader, SectionTitle } from "@/components/ui";
 import { InlineSpinner } from "@/components/spinner";
-import { BackIcon, CogIcon, MessagesIcon } from "@/components/icons";
+import { BackIcon, MessagesIcon } from "@/components/icons";
 import { VerifiedBadge } from "@/components/verified-badge";
 import { MediaGrid } from "@/components/media-grid";
 import { bikeLabel, fullDateOnly } from "@/lib/format";
@@ -158,15 +158,6 @@ export default function ProfilePage({ params }: { params: Promise<{ username: st
         <button type="button" onClick={() => router.back()} className="grid h-8 w-8 place-items-center rounded-full text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800" aria-label="Back">
           <BackIcon size={18} />
         </button>
-        {isSelf && (
-          <Link
-            href="/app/settings"
-            className="grid h-8 w-8 place-items-center rounded-full text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-            aria-label="Settings"
-          >
-            <CogIcon size={18} />
-          </Link>
-        )}
       </PageHeader>
 
       <div className="px-4">
@@ -314,7 +305,7 @@ export default function ProfilePage({ params }: { params: Promise<{ username: st
             />
           ) : (
             <div className="p-2">
-              <MediaGrid media={visibleMedia} />
+              <MediaGrid media={visibleMedia} preview={false} />
             </div>
           )}
           {!postsLoading && (galleryTab === "posts" || galleryTab === "shared" || galleryTab === "tagged") && (

@@ -22,12 +22,14 @@ const username = z
 
 const email = z.string().trim().toLowerCase().email('Must be a valid email address').max(255);
 
+// Accepts an international number (+14155550123) or a local number such as
+// 09031234567 and strips common separators before storing.
 const phone = z
   .string()
   .trim()
   .transform((value) => value.replace(/[\s()-]/g, ''))
-  .refine((value) => /^\+[1-9]\d{6,18}$/.test(value), {
-    message: 'Phone must be in E.164 format, e.g. +14155550123',
+  .refine((value) => /^(\+[1-9]\d{6,18}|\d{7,15})$/.test(value), {
+    message: 'Enter a valid phone number, e.g. 09031234567 or +14155550123',
   });
 
 /**

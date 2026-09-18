@@ -1,66 +1,162 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { PostMedia } from "@/lib/types";
 import { VideoIcon, XIcon } from "@/components/icons";
 
-export function MediaGrid({ media }: { media: PostMedia[] }) {
-  const images = media.filter((item) => item.type === "image");
-  const video = media.find((item) => item.type === "video");
+/**
+ * Post media gallery.
+ *
+ * `preview` (default) renders a post's media the way Facebook/Instagram do:
+ * a single item is full-bleed, two sit side by side, three grow the first into
+ * a big tile, four form a 2x2 grid, and anything beyond four collapses to the
+ * 2x2 grid with a "+N" tile that expands the rest in place.
+ *
+ * `preview={false}` renders a uniform 3-column grid (used by the profile gallery).
+ * Videos and photos share the same grid so a post with one of each no longer
+ * stacks vertically.
+ */
+export function MediaGrid({ media, preview = true }: { media: PostMedia[]; preview?: boolean }) {
+  const [expanded, setExpanded] = useState(false);
+
+  if (!media.length) return null;
+
+  if (!preview) {
+    return (
+      <div className="grid grid-cols-3 gap-1.5">
+        {media.map((item) =>
+          item.type === "video" ? <VideoTile key={item.url} item={item} compact /> : <ImageTile key={item.url} item={item} />,
+        )}
+      </div>
+    );
+  }
+
+  if (media.length <= 4) {
+    const count = media.length;
+    const columns =
+      count === 1 ? "grid-cols-1" : count === 3 ? "grid-cols-2 [&>*:first-child]:col-span-2 [&>*:first-child]:row-span-2" : "grid-cols-2";
+    return (
+      <div className={`grid gap-1.5 ${columns}`}>
+        {media.map((item) =>
+          item.type === "video" ? <VideoTile key={item.url} item={item} compact={count > 1} /> : <ImageTile key={item.url} item={item} />,
+        )}
+      </div>
+    );
+  }
+
+  const overflowCount = media.length - 4;
+  const previewItems = media.slice(0, 4);
 
   return (
-    <div className="space-y-2">
-      {video && <VideoTile item={video} />}
-      {images.length > 0 && (
-        <div className={`grid gap-1.5 ${images.length === 1 ? "grid-cols-1" : images.length === 2 ? "grid-cols-2" : "grid-cols-3"}`}>
-          {images.map((item) => (
-            <ImageTile key={item.url} item={item} spanCount={images.length} />
-          ))}
+    <div className="space-y-1.5">
+      <div className="grid grid-cols-2 gap-1.5">
+        {previewItems.map((item, index) => {
+          if (index === 3) {
+            return (
+              <TileButton key={item.url} onOpen={() => setExpanded((value) => !value)}>
+                <MediaThumb item={item} />
+                <div className="absolute inset-0 grid place-items-center bg-black/60 backdrop-blur-[2px]">
+                  <span className="text-3xl font-bold text-white">+{overflowCount}</span>
+                </div>
+              </TileButton>
+            );
+          }
+          return item.type === "video" ? <VideoTile key={item.url} item={item} compact /> : <ImageTile key={item.url} item={item} />;
+        })}
+      </div>
+      {expanded && (
+        <div className="grid grid-cols-2 gap-1.5">
+          {media.map((item) =>
+            item.type === "video" ? <VideoTile key={item.url} item={item} compact /> : <ImageTile key={item.url} item={item} />,
+          )}
         </div>
       )}
     </div>
   );
 }
 
-function ImageTile({ item, spanCount }: { item: PostMedia; spanCount: number }) {
+function TileButton({ onOpen, children }: { onOpen: () => void; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="group relative aspect-square touch-pan-y overflow-hidden rounded-lg bg-zinc-100 select-none dark:bg-zinc-800"
+    >
+      {children}
+    </button>
+  );
+}
+
+function MediaThumb({ item }: { item: PostMedia }) {
+  if (item.type === "video") {
+    return (
+      <video
+        src={item.url}
+        muted
+        loop
+        playsInline
+        preload="metadata"
+        className="h-full w-full object-cover"
+        onMouseEnter={(event) => void event.currentTarget.play()}
+        onMouseLeave={(event) => {
+          event.currentTarget.pause();
+          event.currentTarget.currentTime = 0;
+        }}
+      />
+    );
+  }
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={item.url}
+      alt="Post photo"
+      loading="lazy"
+      draggable={false}
+      className="h-full w-full touch-pan-y object-cover transition-transform duration-300 group-hover:scale-105"
+    />
+  );
+}
+
+function ImageTile({ item }: { item: PostMedia }) {
   const [open, setOpen] = useState(false);
-  const span = spanCount === 4 || spanCount > 5 ? "col-span-2 row-span-2" : "";
-  const firstBig = spanCount === 4 || spanCount === 7 || spanCount === 8 ? "first:col-span-2 first:row-span-2" : "";
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className={`group relative aspect-square touch-pan-y overflow-hidden rounded-lg bg-zinc-100 select-none dark:bg-zinc-800 ${span} ${firstBig}`}
-      >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={item.url}
-          alt="Post photo"
-          loading="lazy"
-          draggable={false}
-          className="h-full w-full touch-pan-y object-cover transition-transform duration-300 group-hover:scale-105"
-        />
-      </button>
+      <TileButton onOpen={() => setOpen(true)}>
+        <MediaThumb item={item} />
+      </TileButton>
       {open && <Lightbox url={item.url} onClose={() => setOpen(false)} />}
     </>
   );
 }
 
-function VideoTile({ item }: { item: PostMedia }) {
+function VideoTile({ item, compact }: { item: PostMedia; compact: boolean }) {
+  if (compact) {
+    return (
+      <div className="relative aspect-square overflow-hidden rounded-lg bg-black">
+        <video
+          src={item.url}
+          controls
+          playsInline
+          preload="metadata"
+          className="absolute inset-0 h-full w-full object-cover"
+        />
+        <VideoBadge />
+      </div>
+    );
+  }
   return (
     <div className="relative overflow-hidden rounded-lg bg-black">
-      <video
-        src={item.url}
-        controls
-        playsInline
-        preload="metadata"
-        className="max-h-96 w-full"
-      />
-      <span className="absolute top-2 left-2 inline-flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-semibold text-white">
-        <VideoIcon size={11} /> Video
-      </span>
+      <video src={item.url} controls playsInline preload="metadata" className="max-h-96 w-full" />
+      <VideoBadge />
     </div>
+  );
+}
+
+function VideoBadge() {
+  return (
+    <span className="absolute top-2 left-2 inline-flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-semibold text-white">
+      <VideoIcon size={11} /> Video
+    </span>
   );
 }
 

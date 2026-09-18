@@ -4,6 +4,7 @@ import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "@/lib/auth";
 import { ApiError } from "@/lib/api";
+import { useToast } from "@/components/toast";
 import { AuthLink, AuthShell } from "@/components/auth-shell";
 import { Button, Field, Input, PasswordInput } from "@/components/ui";
 
@@ -50,8 +51,8 @@ function validate(form: FormState): FormErrors {
     errors.email = "Enter a valid email address";
   }
 
-  if (phone && !/^\+[1-9]\d{6,18}$/.test(phone.replace(/[\s()-]/g, ""))) {
-    errors.phone = "Enter a phone in E.164 format, e.g. +14155550123";
+  if (phone && !/^(\+[1-9]\d{6,18}|\d{7,15})$/.test(phone.replace(/[\s()-]/g, ""))) {
+    errors.phone = "Enter a valid phone number, e.g. 09031234567 or +14155550123";
   }
 
   if (!form.password) {
@@ -72,6 +73,7 @@ function validate(form: FormState): FormErrors {
 export default function RegisterPage() {
   const { register } = useSession();
   const router = useRouter();
+  const toast = useToast();
 
   const [form, setForm] = useState<FormState>({
     username: "",
@@ -110,6 +112,7 @@ export default function RegisterPage() {
         phone: form.phone.trim() || undefined,
         password: form.password,
       });
+      toast.success("Welcome to RideWing! Your account is ready.");
       router.replace("/app");
     } catch (err) {
       if (err instanceof ApiError && err.details?.length) {
@@ -186,7 +189,7 @@ export default function RegisterPage() {
               autoComplete="tel"
               value={form.phone}
               onChange={set("phone")}
-              placeholder="+15550001122"
+              placeholder="09031234567"
               invalid={Boolean(errors.phone)}
             />
           </Field>

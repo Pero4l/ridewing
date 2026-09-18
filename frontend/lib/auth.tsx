@@ -4,10 +4,14 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import {
   AUTH_EXPIRED_EVENT,
   getAccessToken,
+  IDLE_LOGOUT_MS,
+  idleMs,
+  markActive,
   postLogin,
   postLogout,
   postRegister,
   refreshSession,
+  refreshSessionGentle,
   setAccessToken,
 } from "./api";
 import type { Me } from "./types";
@@ -36,6 +40,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<SessionState["status"]>("loading");
   const [user, setUser] = useState<Me | null>(null);
   const refreshingRef = useRef(false);
+  const statusRef = useRef<SessionState["status"]>("loading");
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
 
   // Restore a cookie-backed session on boot. A single failed restore on a cold
   // reload would otherwise flip us to "guest" and bounce /app out to /login, so
@@ -45,6 +53,20 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      // Reaching the app only happens through a fresh visit or a reload. If the
+      // last activity stamp is older than the idle window, treat it as an honest
+      // logout instead of silently restoring the session.
+      if (idleMs() >= IDLE_LOGOUT_MS) {
+        try {
+          await postLogout();
+        } catch {
+          // Cookie may already be gone — nothing to revoke.
+        }
+        if (cancelled) return;
+        setStatus("guest");
+        return;
+      }
+
       const attempt = async (): Promise<boolean> => {
         try {
           return await refreshSession();
@@ -65,6 +87,40 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     })();
     return () => {
       cancelled = true;
+    };
+  }, []);
+
+  // Idle tracking. Any interaction refreshes the "last active" stamp, and coming
+  // back to the tab hot-refreshes the session so a cursor that went stale while
+  // the page was backgrounded does not trigger a chain of 401s. A refresh that
+  // fails twice falls through to the normal expired-session handling.
+  useEffect(() => {
+    const mark = () => markActive();
+    const events: (keyof WindowEventMap)[] = ["pointerdown", "keydown", "touchstart", "scroll"];
+    events.forEach((event) => window.addEventListener(event, mark, { passive: true }));
+
+    const onVisibility = () => {
+      if (document.visibilityState !== "visible") return;
+      markActive();
+      if (getAccessToken() && statusRef.current === "authed") {
+        void (async () => {
+          let ok = await refreshSessionGentle();
+          if (!ok) {
+            await new Promise((resolve) => setTimeout(resolve, 750));
+            ok = await refreshSessionGentle();
+          }
+          if (!ok) {
+            setAccessToken(null);
+            window.dispatchEvent(new CustomEvent(AUTH_EXPIRED_EVENT));
+          }
+        })();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      events.forEach((event) => window.removeEventListener(event, mark));
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, []);
 

@@ -45,9 +45,9 @@ export default function SettingsPage() {
   const emailVerified = Boolean(user?.emailVerifiedAt);
   const hasEmail = Boolean(user?.email);
 
-  // Collapsed sections become a clean index; expandables open where there is
-  // something worth changing (unverified email) and close after a save.
-  const [open, setOpen] = useState<"profile" | "appearance" | "password" | "preferences" | null>("profile");
+  // Sections start collapsed; expandables open only when the owner taps them and
+  // re-close after a save, so the page never auto-opens onto personal info.
+  const [open, setOpen] = useState<"profile" | "appearance" | "password" | "preferences" | null>(null);
 
   useEffect(() => {
 

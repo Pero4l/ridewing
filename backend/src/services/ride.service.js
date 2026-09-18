@@ -14,6 +14,7 @@ const env = require('../config/env');
 const { RideSession, RideParticipant, Follow, CommunityMember, Community, User, sequelize } = require('../models');
 const ApiError = require('../utils/ApiError');
 const { inviteCode } = require('../utils/slug');
+const emailService = require('./email.service');
 
 const ACTIVE_INCLUDE = [
   { model: User, as: 'creator' },
@@ -62,7 +63,23 @@ async function create(creatorId, { name, voiceMode = 'ptt', maxParticipants } = 
     return created;
   });
 
-  return getById(ride.id);
+  const session = await getById(ride.id);
+
+  emailService.alertAdmins({
+    subject: 'RideWing: new ride started',
+    text: `A new ride was started: ${session.name}.`,
+    html: emailService.renderHtml({
+      title: 'New ride started',
+      paragraphs: [
+        `Creator: @${session.creator?.username ?? creatorId}`,
+        `Name: ${session.name}`,
+        `Voice mode: ${session.voiceMode}`,
+        `Invite code: ${session.inviteCode}`,
+      ],
+    }),
+  });
+
+  return session;
 }
 
 async function getById(rideId) {

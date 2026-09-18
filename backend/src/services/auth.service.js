@@ -16,6 +16,8 @@ const env = require('../config/env');
 const { User, sequelize } = require('../models');
 const ApiError = require('../utils/ApiError');
 const tokenService = require('./token.service');
+const emailService = require('./email.service');
+const logger = require('../config/logger');
 
 // A bcrypt hash of random bytes, computed once at boot. Compared against when an
 // account is not found so the work-factor cost is paid on every login attempt,
@@ -63,6 +65,48 @@ async function register({ username, email, phone, password, displayName, bio, bi
 
     const { rawToken } = await tokenService.issueRefreshToken(user.id, { userAgent, transaction });
     return { user, refreshToken: rawToken };
+  });
+
+  // Welcome the rider and quietly keep the admins in the loop. Both are
+  // fire-and-forget: a slow (or unconfigured) mail relay must never block signup.
+  if (emailService.enabled() && result.user.email) {
+    queueMicrotask(async () => {
+      try {
+        await emailService.sendTransactional({
+          to: result.user.email,
+          subject: 'Welcome to RideWing',
+          text:
+            `Hi ${result.user.displayName},\n\n` +
+            'Welcome to RideWing! Your account is ready.\n\n' +
+            'Set up your profile, add a photo and start finding rides with riders you trust.\n'
+          ,
+          html: emailService.renderHtml({
+            title: 'Welcome to RideWing',
+            preview: `Hi ${result.user.displayName},`,
+            paragraphs: [
+              'Thanks for joining. Your account is ready — find rides, chat with riders you trust and share the road.',
+              'Head to your profile to add a photo and tell riders about yourself.',
+            ],
+            button: { href: `${env.frontendUrl}/app`, label: 'Start riding' },
+          }),
+        });
+      } catch (error) {
+        logger.warn({ error: error.message }, 'welcome email failed');
+      }
+    });
+  }
+  emailService.alertAdmins({
+    subject: `RideWing: new rider joined (${result.user.username})`,
+    text: `New rider signed up: ${result.user.username} (${result.user.displayName})`,
+    html: emailService.renderHtml({
+      title: 'New rider signed up',
+      paragraphs: [
+        `Username: ${result.user.username}`,
+        `Display name: ${result.user.displayName}`,
+        `Email: ${result.user.email || '—'}`,
+        `Phone: ${result.user.phone || '—'}`,
+      ],
+    }),
   });
 
   return {

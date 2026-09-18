@@ -27,7 +27,7 @@ function generateRawToken() {
   return crypto.randomBytes(32).toString('base64url');
 }
 
-const isEnabled = () => emailService.enabled() && env.email.verificationTokenTtlHours > 0;
+const isEnabled = () => emailService.enabled() && env.email.verificationTokenTtlMinutes > 0;
 
 /** True when the user's workflow never needs a verification email (no email on file). */
 const hasVerifiableEmail = (user) => Boolean(user.email);
@@ -70,7 +70,7 @@ async function createAndSend(userId) {
   }
 
   const rawToken = generateRawToken();
-  const expiresAt = new Date(Date.now() + env.email.verificationTokenTtlHours * 60 * 60 * 1000);
+  const expiresAt = new Date(Date.now() + env.email.verificationTokenTtlMinutes * 60 * 1000);
 
   await EmailVerificationToken.update(
     { usedAt: new Date(), expiresAt: new Date(0) },
@@ -84,25 +84,26 @@ async function createAndSend(userId) {
 
   const verifyUrl = new URL('/verify-email', env.frontendUrl);
   verifyUrl.searchParams.set('token', rawToken);
+  const ttlMinutes = env.email.verificationTokenTtlMinutes;
 
   try {
     await emailService.sendTransactional({
       to: user.email,
       subject: 'Confirm your RideWing email',
-      text: `Hi ${user.displayName},\n\nConfirm this is you by visiting:\n${verifyUrl.toString()}\n\nThis link expires in ${env.email.verificationTokenTtlHours} hours. If you did not create a RideWing account, you can safely ignore this email.\n`,
-      html: [
-        '<div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto">',
-        `<h2 style="margin:0">Confirm your email</h2>`,
-        `<p>Hi ${escapeHtml(user.displayName)},</p>`,
-        `<p>Someone — hopefully you — asked to verify this address for a RideWing account. Confirm it by clicking the button below.</p>`,
-        `<p style="margin:24px 0;text-align:center">`,
-        `<a href="${verifyUrl.toString()}" style="background:#059669;color:#fff;padding:12px 20px;border-radius:10px;text-decoration:none;font-weight:600">Verify email</a>`,
-        `</p>`,
-        `<p style="font-size:13px;color:#71717a">Or paste this link into your browser:</p>`,
-        `<p style="font-size:12px;color:#71717a;word-break:break-all">${verifyUrl.toString()}</p>`,
-        `<p style="font-size:12px;color:#71717a">This link expires in ${env.email.verificationTokenTtlHours} hours. If you did not create a RideWing account, ignore this email.</p>`,
-        '</div>',
-      ].join(''),
+      text:
+        `Hi ${user.displayName},\n\n` +
+        `We received a request to create a RideWing account using this email address. ` +
+        `Confirm it by opening this link (valid for ${ttlMinutes} minutes):\n\n${verifyUrl.toString()}\n\n` +
+        `If you did not create a RideWing account, you can ignore this email.\n`,
+      html: emailService.renderHtml({
+        title: 'Confirm your email address',
+        preview: `Hi ${user.displayName},`,
+        paragraphs: [
+          'We received a request to create a RideWing account using this email address. Confirm it by tapping the button below.',
+          `This link stays valid for ${ttlMinutes} minutes. If you did not create a RideWing account, you can ignore this email.`,
+        ],
+        button: { href: verifyUrl.toString(), label: 'Verify email address' },
+      }),
     });
   } catch (error) {
     await EmailVerificationToken.destroy({ where: { userId } });
@@ -134,15 +135,6 @@ async function verify(userId, rawToken) {
 
   logger.info({ userId: user.id }, 'email verified');
   return { verified: true, emailVerifiedAt: user.emailVerifiedAt };
-}
-
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
 }
 
 module.exports = { isEnabled, hasVerifiableEmail, getRequirement, createAndSend, verify };

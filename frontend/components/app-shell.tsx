@@ -9,6 +9,7 @@ import { NotificationsProvider, useNotifications } from "@/components/notificati
 import { Avatar } from "@/components/avatar";
 import { InlineSpinner } from "@/components/spinner";
 import { WingMark } from "@/components/auth-shell";
+import type { Me } from "@/lib/types";
 import {
   BellIcon,
   CogIcon,
@@ -55,12 +56,10 @@ export function AppShell({ children }: { children: ReactNode }) {
     );
   }
 
-  const username = user?.username ?? "";
-
   return (
     <NotificationsProvider>
       <div className="relative mx-auto flex min-h-dvh w-full max-w-2xl flex-col">
-        <Header username={username} />
+        <Header user={user} />
         <main className="flex-1 pb-32">{children}</main>
         <BottomNav />
       </div>
@@ -81,7 +80,7 @@ function Brand() {
   );
 }
 
-function Header({ username }: { username: string }) {
+function Header({ user }: { user: Me | null }) {
   const { unreadCount } = useNotifications();
 
   return (
@@ -110,11 +109,16 @@ function Header({ username }: { username: string }) {
             )}
           </Link>
           <Link
-            href={`/app/profile/${username}`}
+            href={`/app/profile/${user?.username ?? ""}`}
             aria-label="Your profile"
             className="ml-1 grid h-9 w-9 place-items-center rounded-xl ring-1 ring-zinc-200/70 transition-shadow hover:ring-emerald-500/60 dark:ring-zinc-700/70"
           >
-            <Avatar name={username} username={username} size={28} />
+            <Avatar
+              name={user?.displayName ?? user?.username ?? ""}
+              username={user?.username ?? ""}
+              image={user?.profileImage ?? null}
+              size={28}
+            />
           </Link>
         </div>
       </div>
