@@ -22,6 +22,7 @@ export type PrivateUser = PublicUser & {
   phone: string | null;
   lastSeenAt: string | null;
   updatedAt: string;
+  role: "rider" | "admin";
 };
 
 export type Me = PrivateUser;
@@ -143,6 +144,18 @@ export type NotificationItem = {
   readAt: string | null;
   createdAt: string;
   actor: PublicUser | null;
+};
+
+export type SupportTicket = {
+  id: string;
+  subject: string;
+  body: string;
+  status: "open" | "resolved";
+  resolutionNote: string | null;
+  resolvedAt: string | null;
+  createdAt: string;
+  creator?: PublicUser;
+  resolver?: PublicUser;
 };
 
 export type Peer = {

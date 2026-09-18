@@ -104,6 +104,7 @@ function buildPushPayload(notification) {
     case 'community_role_changed': copy.title = 'Your community role changed'; break;
     case 'ride_invite': copy.title = `${actor} invited you to a ride`; break;
     case 'message': copy.title = `${actor} sent you a message`; break;
+    case 'support_ticket': copy.title = 'Your support ticket was resolved'; break;
     default: break;
   }
 

@@ -49,4 +49,12 @@ const optionalAuth = asyncHandler(async (req, res, next) => {
   return next();
 });
 
-module.exports = { requireAuth, optionalAuth, extractBearer };
+/** Rejects unless the authenticated rider holds the admin role. */
+const requireAdmin = asyncHandler(async (req, res, next) => {
+  if (!req.user || req.user.role !== 'admin') {
+    throw ApiError.forbidden('You do not have permission to do that');
+  }
+  return next();
+});
+
+module.exports = { requireAuth, optionalAuth, requireAdmin, extractBearer };

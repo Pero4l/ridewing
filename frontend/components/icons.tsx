@@ -201,6 +201,14 @@ export const ChevronRightIcon = (p: IconProps) => (
   </svg>
 );
 
+export const SupportIcon = (p: IconProps) => (
+  <svg {...base(p)}>
+    <circle cx="12" cy="12" r="9" />
+    <circle cx="12" cy="12" r="2.5" />
+    <path d="M6.7 8.7a7 7 0 0 1 10.6 0M6.7 15.3a7 7 0 0 0 10.6 0" />
+  </svg>
+);
+
 export const CameraIcon = (p: IconProps) => (
   <svg {...base(p)}>
     <path d="M3 8.5A1.5 1.5 0 0 1 4.5 7h2L8 5h8l1.5 2h2A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5Z" />

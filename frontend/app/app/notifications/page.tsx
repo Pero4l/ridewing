@@ -51,6 +51,8 @@ function describe(item: NotificationItem): NotificationCopy {
       return { text: "shared your post", href: postLink };
     case "comment_reply":
       return { text: "replied to your comment", href: postLink };
+    case "support_ticket":
+      return { text: "resolved your support ticket", href: "/app/support" };
     default:
       return { text: item.type.replaceAll("_", " "), href: actorLink || null };
   }

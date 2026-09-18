@@ -18,6 +18,7 @@ import {
   MessagesIcon,
   PlusIcon,
   RidesIcon,
+  SupportIcon,
 } from "@/components/icons";
 
 const CREATE_HREF = "/app/posts/new";
@@ -28,6 +29,7 @@ const TABS = [
   { href: "/app/communities", label: "Communities", icon: CommunitiesIcon },
   { href: CREATE_HREF, label: "New post", icon: PlusIcon },
   { href: "/app/messages", label: "Messages", icon: MessagesIcon },
+  { href: "/app/support", label: "Support", icon: SupportIcon },
   { href: "/app/settings", label: "Settings", icon: CogIcon },
 ];
 
