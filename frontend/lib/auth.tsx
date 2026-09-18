@@ -53,10 +53,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      // Reaching the app only happens through a fresh visit or a reload. If the
-      // last activity stamp is older than the idle window, treat it as an honest
-      // logout instead of silently restoring the session.
+      // The idle stamp is scoped to this open tab (sessionStorage), so a fresh
+      // visit has no stamp and quietly restores the cookie session. Only the
+      // same-tab minimize/return case can trip the 20-minute window.
       if (idleMs() >= IDLE_LOGOUT_MS) {
+        // Away past the idle window — end the session. Best-effort revoke so a
+        // network hiccup cannot crash the app into an error screen.
         try {
           await postLogout();
         } catch {
@@ -87,40 +89,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     })();
     return () => {
       cancelled = true;
-    };
-  }, []);
-
-  // Idle tracking. Any interaction refreshes the "last active" stamp, and coming
-  // back to the tab hot-refreshes the session so a cursor that went stale while
-  // the page was backgrounded does not trigger a chain of 401s. A refresh that
-  // fails twice falls through to the normal expired-session handling.
-  useEffect(() => {
-    const mark = () => markActive();
-    const events: (keyof WindowEventMap)[] = ["pointerdown", "keydown", "touchstart", "scroll"];
-    events.forEach((event) => window.addEventListener(event, mark, { passive: true }));
-
-    const onVisibility = () => {
-      if (document.visibilityState !== "visible") return;
-      markActive();
-      if (getAccessToken() && statusRef.current === "authed") {
-        void (async () => {
-          let ok = await refreshSessionGentle();
-          if (!ok) {
-            await new Promise((resolve) => setTimeout(resolve, 750));
-            ok = await refreshSessionGentle();
-          }
-          if (!ok) {
-            setAccessToken(null);
-            window.dispatchEvent(new CustomEvent(AUTH_EXPIRED_EVENT));
-          }
-        })();
-      }
-    };
-    document.addEventListener("visibilitychange", onVisibility);
-
-    return () => {
-      events.forEach((event) => window.removeEventListener(event, mark));
-      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, []);
 
@@ -173,6 +141,34 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setStatus("guest");
     }
   }, []);
+
+  // Idle tracking. Interaction refreshes the "last active" stamp. A rider who
+  // stays away past the idle window is logged out on return; a quick return just
+  // gets a fresh token through the shared refresh lock. Transient hiccups never
+  // end the session here — that decision belongs to the refresh machinery.
+  useEffect(() => {
+    const mark = () => markActive();
+    const events: (keyof WindowEventMap)[] = ["pointerdown", "keydown", "touchstart", "scroll"];
+    events.forEach((event) => window.addEventListener(event, mark, { passive: true }));
+
+    const onVisibility = () => {
+      if (document.visibilityState !== "visible") return;
+      if (statusRef.current === "authed" && getAccessToken() && idleMs() >= IDLE_LOGOUT_MS) {
+        void logout();
+        return;
+      }
+      markActive();
+      if (statusRef.current === "authed" && getAccessToken()) {
+        void refreshSessionGentle();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      events.forEach((event) => window.removeEventListener(event, mark));
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [logout]);
 
   const refreshUser = useCallback(async () => {
     if (refreshingRef.current) return;
