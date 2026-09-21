@@ -196,7 +196,7 @@ export type Post = {
   editedAt: string | null;
   mediaEditableUntil: string;
   createdAt: string;
-  user: PublicUser | null;
+  user: (PublicUser & { viewerIsFollowing?: boolean }) | null;
 };
 
 export type PostCommentItem = {

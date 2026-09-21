@@ -7,6 +7,7 @@ import { useSession } from "@/lib/auth";
 import { useToast } from "@/components/toast";
 import { Avatar } from "@/components/avatar";
 import { VerifiedBadge } from "@/components/verified-badge";
+import { FollowButton } from "@/components/follow-button";
 import { MediaGrid } from "@/components/media-grid";
 import { PostEditDialog } from "@/components/post-edit-dialog";
 import { CommentIcon, DotsHorizontalIcon, EditIcon, HeartIcon, ShareIcon, TrashIcon, XIcon } from "@/components/icons";
@@ -103,6 +104,9 @@ export function PostCard({ post, onChanged }: PostCardProps) {
               </p>
             </div>
           </Link>
+          {!isMine && author && !author.viewerIsFollowing && (
+            <FollowButton user={author} onChanged={() => void onChanged()} />
+          )}
           {isMine && (
             <div className="relative shrink-0">
               <button

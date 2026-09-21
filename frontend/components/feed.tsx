@@ -84,7 +84,7 @@ export function Feed() {
       ) : posts.length === 0 ? (
         <EmptyState
           title="Nothing on the road yet"
-          description="Post a photo or a note — riders you follow will see it here."
+          description="Post a photo or a note — it will show up here for every rider."
         />
       ) : (
         <>

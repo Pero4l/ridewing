@@ -145,22 +145,22 @@ async function update(postId, userId, { content, media: rawMedia }) {
 
 async function getPost(postId, viewerId) {
   const post = await loadPostOrThrow(postId);
-  const liked = await PostLike.findOne({ where: { postId: post.id, userId: viewerId }, attributes: ['id'] });
-  return toJSON(post, { viewerLiked: Boolean(liked) });
+  const [liked, followRow] = await Promise.all([
+    PostLike.findOne({ where: { postId: post.id, userId: viewerId }, attributes: ['id'] }),
+    post.userId === viewerId
+      ? null
+      : Follow.findOne({ where: { followerId: viewerId, followingId: post.userId }, attributes: ['id'] }),
+  ]);
+  return toJSON(post, { viewerLiked: Boolean(liked), viewerIsFollowingAuthor: Boolean(followRow) });
 }
 
 async function feed(userId, { limit, cursor } = {}) {
   const pageSize = normalizeLimit(limit, 20);
   const decoded = decodeCursor(cursor);
 
-  // Posts by people the rider follows plus their own.
-  const followingRows = await Follow.findAll({
-    where: { followerId: userId },
-    attributes: ['followingId'],
-  });
-  const authorIds = new Set([userId, ...followingRows.map((row) => row.followingId)]);
-
-  const where = { userId: { [Op.in]: [...authorIds] } };
+  // Facebook-style feed: every rider's posts, newest first, so riders always
+  // have something new to scroll even before they follow anyone.
+  const where = {};
   if (decoded?.createdAt) where.createdAt = { [Op.lt]: new Date(decoded.createdAt) };
 
   const rows = await Post.findAll({
@@ -172,18 +172,29 @@ async function feed(userId, { limit, cursor } = {}) {
 
   const page = buildPage(rows, pageSize, (row) => ({ createdAt: row.createdAt.toISOString() }));
 
-  // One query for every "did I like this?" check on the page.
+  // Two batched lookups avoid an N+1 for "did I like this?" and "is this
+  // author someone I already follow?" across the whole page.
   const postIds = page.items.map((post) => post.id);
-  const likedRows = postIds.length
-    ? await PostLike.findAll({
-        where: { postId: { [Op.in]: postIds }, userId },
-        attributes: ['postId'],
-      })
-    : [];
+  const authorIds = page.items.map((post) => post.userId);
+
+  const [likedRows, followingRows] = await Promise.all([
+    postIds.length
+      ? PostLike.findAll({ where: { postId: { [Op.in]: postIds }, userId }, attributes: ['postId'] })
+      : [],
+    authorIds.length
+      ? Follow.findAll({
+          where: { followerId: userId, followingId: { [Op.in]: authorIds } },
+          attributes: ['followingId'],
+        })
+      : [],
+  ]);
   const likedSet = new Set(likedRows.map((row) => row.postId));
+  const followingSet = new Set(followingRows.map((row) => row.followingId));
 
   return {
-    items: page.items.map((post) => toJSON(post, { viewerLiked: likedSet.has(post.id) })),
+    items: page.items.map((post) =>
+      toJSON(post, { viewerLiked: likedSet.has(post.id), viewerIsFollowingAuthor: followingSet.has(post.userId) }),
+    ),
     pageInfo: page.pageInfo,
   };
 }
@@ -382,7 +393,7 @@ async function userPosts(username, { tab = 'posts' } = {}) {
   return { items, pageInfo: { hasMore: false, nextCursor: null } };
 }
 
-function toJSON(post, { viewerLiked }) {
+function toJSON(post, { viewerLiked, viewerIsFollowingAuthor = false }) {
   return {
     id: post.id,
     content: post.content,
@@ -394,7 +405,9 @@ function toJSON(post, { viewerLiked }) {
     editedAt: post.editedAt ? post.editedAt.toISOString() : null,
     mediaEditableUntil: new Date(post.createdAt.getTime() + MEDIA_EDIT_WINDOW_MS).toISOString(),
     createdAt: post.createdAt.toISOString(),
-    user: post.user ? post.user.toPublicJSON() : null,
+    user: post.user
+      ? { ...post.user.toPublicJSON(), viewerIsFollowing: Boolean(viewerIsFollowingAuthor) }
+      : null,
   };
 }
 

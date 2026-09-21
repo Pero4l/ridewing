@@ -9,8 +9,14 @@ import { Button } from "@/components/ui";
  * Follow/unfollow toggle. Reads the initial state off the profile and keeps the
  * button in sync optimistically.
  */
-export function FollowButton({ user, onChanged }: { user: { username: string; viewerIsFollowing: boolean }; onChanged?: (following: boolean) => void }) {
-  const [following, setFollowing] = useState(user.viewerIsFollowing);
+export function FollowButton({
+  user,
+  onChanged,
+}: {
+  user: { username: string; viewerIsFollowing?: boolean };
+  onChanged?: (following: boolean) => void;
+}) {
+  const [following, setFollowing] = useState(user.viewerIsFollowing ?? false);
   const [busy, setBusy] = useState(false);
   const toast = useToast();
 
