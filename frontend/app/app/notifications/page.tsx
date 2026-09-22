@@ -33,6 +33,8 @@ function describe(item: NotificationItem): NotificationCopy {
   switch (item.type) {
     case "follow":
       return { text: "started following you", href: actorLink };
+    case "message":
+      return { text: "sent you a message", href: "/app/messages" };
     case "community_join_request":
       return { text: communitySlug ? `requested to join ${communitySlug}` : "requested to join your community", href: communityLink };
     case "community_join_approved":

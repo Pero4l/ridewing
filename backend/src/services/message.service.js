@@ -10,11 +10,13 @@
 const { Op } = require('sequelize');
 
 const env = require('../config/env');
+const logger = require('../config/logger');
 const { Message, Conversation, ConversationMember, User, sequelize } = require('../models');
 const ApiError = require('../utils/ApiError');
 const { normalizeLimit, decodeCursor, buildPage } = require('../utils/pagination');
 const conversationService = require('./conversation.service');
 const communityService = require('./community.service');
+const notificationService = require('./notification.service');
 
 /** Trims and length-checks content before it reaches the database. */
 function normalizeContent(raw) {
@@ -27,6 +29,33 @@ function normalizeContent(raw) {
     );
   }
   return content;
+}
+
+/**
+ * Nudges the other rider in a direct thread. Runs on the microtask queue so
+ * message delivery latency never waits on notification fan-out, and a failure
+ * here can never affect the stored message. Community threads have no single
+ * recipient, so only direct conversations are notified.
+ */
+async function notifyDirectRecipient(conversationId, senderId, message) {
+  const conversation = await Conversation.findByPk(conversationId, { attributes: ['id', 'type'] });
+  if (!conversation || conversation.type !== 'direct') return;
+
+  const members = await ConversationMember.findAll({
+    where: { conversationId, userId: { [Op.ne]: senderId } },
+    attributes: ['userId'],
+  });
+  const recipientId = members[0]?.userId;
+  if (!recipientId) return;
+
+  await notificationService.create({
+    userId: recipientId,
+    actorId: senderId,
+    type: 'message',
+    entityType: 'conversation',
+    entityId: conversationId,
+    data: { conversationId, messageId: message.id, content: message.content },
+  });
 }
 
 /**
@@ -62,6 +91,17 @@ async function send(conversationId, senderId, { content, clientNonce = null }) {
     });
 
     message.sender = await User.findByPk(senderId);
+
+    // A duplicate (nonce replay) already delivered the first time; never nudge
+    // the recipient twice for the same message.
+    if (!duplicate) {
+      queueMicrotask(() => {
+        notifyDirectRecipient(conversationId, senderId, message).catch((error) =>
+          logger.warn({ error: error.message, conversationId }, 'message notification failed'),
+        );
+      });
+    }
+
     return { message, duplicate: false };
   } catch (error) {
     // A repeated nonce means this exact send already succeeded.

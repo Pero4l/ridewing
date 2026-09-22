@@ -16,6 +16,8 @@ const logger = require('./config/logger');
 const { sequelize } = require('./models');
 const { createSocketServer } = require('./sockets');
 const tokenService = require('./services/token.service');
+const rideService = require('./services/ride.service');
+const { emitToRide } = require('./sockets/emit');
 
 const server = http.createServer(app);
 const io = createSocketServer(server);
@@ -23,6 +25,22 @@ const io = createSocketServer(server);
 // Hourly sweep of expired/revoked refresh tokens.
 const PURGE_INTERVAL_MS = 60 * 60 * 1000;
 let purgeTimer = null;
+
+// Ends rides that have been idle for the threshold. Runs more often than the
+// threshold so a ride is ended within minutes of going quiet.
+const RIDE_IDLE_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
+let rideIdleSweepTimer = null;
+
+async function sweepIdleRides() {
+  try {
+    const ended = await rideService.expireIdleRides();
+    if (!ended.length) return;
+    ended.forEach((result) => emitToRide(result.id, 'ride:ended', result));
+    logger.info({ count: ended.length }, 'ended idle rides');
+  } catch (error) {
+    logger.warn({ err: error }, 'idle ride sweep failed');
+  }
+}
 
 async function start() {
   try {
@@ -49,6 +67,12 @@ async function start() {
       .catch((error) => logger.warn({ err: error }, 'refresh token purge failed'));
   }, PURGE_INTERVAL_MS);
   purgeTimer.unref();
+
+  // Sweep once at boot so rides that went idle while we were down are ended,
+  // then on the interval for ongoing enforcement.
+  sweepIdleRides();
+  rideIdleSweepTimer = setInterval(sweepIdleRides, RIDE_IDLE_SWEEP_INTERVAL_MS);
+  rideIdleSweepTimer.unref();
 }
 
 let shuttingDown = false;
@@ -59,6 +83,7 @@ async function shutdown(signal) {
   logger.info({ signal }, 'shutting down');
 
   if (purgeTimer) clearInterval(purgeTimer);
+  if (rideIdleSweepTimer) clearInterval(rideIdleSweepTimer);
 
   // Stop accepting new work, then release resources.
   const forceExit = setTimeout(() => {

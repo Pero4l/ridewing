@@ -8,7 +8,7 @@ import { useSession } from "@/lib/auth";
 import { useToast } from "@/components/toast";
 import { Avatar } from "@/components/avatar";
 import { Badge, Button } from "@/components/ui";
-import { InlineSpinner } from "@/components/spinner";
+import { InlineSpinner, SpinnerIcon } from "@/components/spinner";
 import { DotsHorizontalIcon, SendIcon } from "@/components/icons";
 import { VerifiedBadge } from "@/components/verified-badge";
 import { clockTime } from "@/lib/format";
@@ -35,7 +35,6 @@ export function ChatThread({
   const toast = useToast();
 
   const [messages, setMessages] = useState<Message[]>([]);
-  const [pending, setPending] = useState<Message[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -54,14 +53,6 @@ export function ChatThread({
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const myId = user?.id;
-
-  const upsert = useCallback((message: Message) => {
-    setMessages((current) => {
-      if (idsRef.current.has(message.id)) return current;
-      idsRef.current.add(message.id);
-      return [...current, message];
-    });
-  }, []);
 
   // Initial history + socket join + event wiring.
   useEffect(() => {
@@ -96,8 +87,7 @@ export function ChatThread({
 
     const offNew = onSocketEvent<Message>("message:new", (message) => {
       if (message.conversationId !== conversationId) return;
-      upsert(message);
-      settlePending(message);
+      acceptMessage(message);
       if (nearBottomRef.current) scrollToBottom();
     });
     const offDeleted = onSocketEvent<{ id: string }>("message:deleted", ({ id }) => {
@@ -124,9 +114,38 @@ export function ChatThread({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId]);
 
-  // settlePending: a broadcast with a real id confirms a pending send.
-  function settlePending(message: Message) {
-    setPending((current) => current.filter((pendingMessage) => pendingMessage.clientNonce !== message.clientNonce));
+  // Accept a server-confirmed message (ack, HTTP response, or broadcast). If it
+  // matches an optimistic message by clientNonce, it replaces that bubble in place
+  // so the message never flashes out of the thread. Otherwise it appends.
+  function acceptMessage(message: Message) {
+    const nonce = message.clientNonce ?? "";
+    setMessages((current) => {
+      if (nonce) {
+        const index = current.findIndex((m) => m.id.startsWith("pending-") && m.clientNonce === nonce);
+        if (index !== -1) {
+          const optimistic = current[index];
+          const next = current.slice();
+          idsRef.current.delete(optimistic.id);
+          next[index] = { ...message, pending: false, failed: false };
+          if (message.id) idsRef.current.add(message.id);
+          return next;
+        }
+      }
+      if (idsRef.current.has(message.id)) return current;
+      idsRef.current.add(message.id);
+      return [...current, message];
+    });
+  }
+
+  // Marks an optimistic message as failed, keeping it visible with a retry.
+  function failMessage(clientNonce: string) {
+    setMessages((current) =>
+      current.map((message) =>
+        message.pending && message.clientNonce === clientNonce
+          ? { ...message, pending: false, failed: true }
+          : message,
+      ),
+    );
   }
 
   const isNearBottom = useCallback(() => {
@@ -212,24 +231,42 @@ export function ChatThread({
     typingTimeoutRef.current = setTimeout(() => reportTyping(false), 2500);
   }
 
-  async function send() {
+  function send() {
     const content = draft.trim();
     if (!content || sendBusy) return;
     setSendBusy(true);
     const clientNonce = crypto.randomUUID();
-    setPending((current) => [...current, { id: `pending-${clientNonce}`, conversationId, senderId: myId ?? "", content, clientNonce, createdAt: new Date().toISOString(), pending: true }]);
+    // Optimistic bubble: rendered immediately, replaced in place by the
+    // server-confirmed message (matched on clientNonce) once it lands.
+    const optimistic: Message = {
+      id: `pending-${clientNonce}`,
+      conversationId,
+      senderId: myId ?? "",
+      content,
+      clientNonce,
+      createdAt: new Date().toISOString(),
+      pending: true,
+    };
+    idsRef.current.add(optimistic.id);
+    setMessages((current) => [...current, optimistic]);
     setDraft("");
     reportTyping(false);
-    scrollToBottom();
+    requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }));
+    void confirmSend(optimistic);
+  }
 
+  // Pushes an optimistic message to the backend and reconciles it on success.
+  // The backend is idempotent by clientNonce, so retrying a failed send is safe.
+  async function confirmSend(message: Message) {
+    const clientNonce = message.clientNonce ?? "";
+    const content = message.content;
     try {
       const ack = await emitWithAck<{ conversationId: string; content: string; clientNonce: string }, { ok: boolean; error?: { message: string }; message?: Message; duplicate?: boolean }>(
         "message:send",
         { conversationId, content, clientNonce },
       );
       if (ack?.ok) {
-        if (ack.message) upsert(ack.message);
-        settlePending({ ...(ack.message ?? { clientNonce: "" }) } as Message);
+        if (ack.message) acceptMessage(ack.message);
       } else {
         throw new ApiError(ack?.error?.message ?? "Send failed", 0);
       }
@@ -240,12 +277,9 @@ export function ChatThread({
           content,
           clientNonce,
         });
-        upsert(res.message);
-        settlePending({ ...res.message, clientNonce } as Message);
+        acceptMessage(res.message);
       } catch {
-        setPending((current) =>
-          current.map((message) => (message.clientNonce === clientNonce ? { ...message, failed: true } : message)),
-        );
+        failMessage(clientNonce);
         toast.error("Message could not be sent");
       }
     } finally {
@@ -254,12 +288,18 @@ export function ChatThread({
   }
 
   function retry(message: Message) {
-    setDraft(message.content);
-    setPending((current) => current.filter((m) => m.id !== message.id));
+    if (sendBusy) return;
+    void confirmSend(message);
   }
 
   async function removeMessage(message: Message) {
     setMenuFor(null);
+    // Unsent optimistic bubbles have no server row yet — drop them locally.
+    if (message.id.startsWith("pending-")) {
+      idsRef.current.delete(message.id);
+      setMessages((current) => current.filter((m) => m.id !== message.id));
+      return;
+    }
     try {
       await api.delete(`/api/messages/${message.id}`);
       idsRef.current.delete(message.id);
@@ -305,7 +345,7 @@ export function ChatThread({
               </div>
             )}
 
-            {grouped.length === 0 && pending.length === 0 && (
+            {grouped.length === 0 && (
               <p className="py-10 text-center text-sm text-zinc-400 dark:text-zinc-500">
                 No messages yet. Say hi.
               </p>
@@ -317,13 +357,10 @@ export function ChatThread({
                 messages={group}
                 myId={myId ?? ""}
                 onDelete={removeMessage}
+                onRetry={retry}
                 menuFor={menuFor}
                 setMenuFor={setMenuFor}
               />
-            ))}
-
-            {pending.map((message) => (
-              <PendingBubble key={message.id} message={message} onRetry={retry} />
             ))}
           </>
         )}
@@ -484,12 +521,14 @@ function MessageGroup({
   messages,
   myId,
   onDelete,
+  onRetry,
   menuFor,
   setMenuFor,
 }: {
   messages: Message[];
   myId: string;
   onDelete: (message: Message) => void;
+  onRetry: (message: Message) => void;
   menuFor: string | null;
   setMenuFor: (value: string | null) => void;
 }) {
@@ -510,7 +549,11 @@ function MessageGroup({
           <div
             className={`relative rounded-2xl px-3 py-2 text-sm leading-relaxed ${
               mine
-                ? "rounded-br-md bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                ? first.failed
+                  ? "border border-red-300 bg-red-50 text-red-600 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
+                  : first.pending
+                    ? "bg-zinc-300 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200"
+                    : "rounded-br-md bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
                 : "rounded-bl-md bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100"
             }`}
           >
@@ -524,8 +567,25 @@ function MessageGroup({
               </button>
             )}
             <p className="whitespace-pre-wrap break-words">{first.content}</p>
-            <p className={`mt-0.5 text-right text-[10px] ${mine ? "text-zinc-300 dark:text-zinc-500" : "text-zinc-300 dark:text-zinc-500"}`}>
-              {clockTime(first.createdAt)}
+            <p className={`mt-0.5 flex items-center justify-end gap-1.5 text-right text-[10px] ${mine ? "text-zinc-300 dark:text-zinc-500" : "text-zinc-300 dark:text-zinc-500"}`}>
+              {first.pending ? (
+                <span className="flex items-center gap-1">
+                  <SpinnerIcon size={10} className="animate-spin text-zinc-300 dark:text-zinc-500" /> {clockTime(first.createdAt)}
+                </span>
+              ) : first.failed ? (
+                <span className="flex items-center gap-1.5 font-semibold text-red-500 dark:text-red-400">
+                  Not sent
+                  <button
+                    type="button"
+                    onClick={() => onRetry(first)}
+                    className="underline underline-offset-2 hover:opacity-80"
+                  >
+                    Retry
+                  </button>
+                </span>
+              ) : (
+                clockTime(first.createdAt)
+              )}
             </p>
             {mine && menuFor === first.id && (
               <div className="absolute right-0 top-9 z-20 rounded-lg border border-zinc-200 bg-white p-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
@@ -539,30 +599,6 @@ function MessageGroup({
             )}
           </div>
         </div>
-      </div>
-    </div>
-  );
-}
-
-function PendingBubble({ message, onRetry }: { message: Message; onRetry: (message: Message) => void }) {
-  return (
-    <div className={`mb-2 flex justify-end`}>
-      <div
-        className={`flex items-center gap-2 rounded-2xl rounded-br-md border px-3 py-2 text-sm ${
-          message.failed
-            ? "border-red-200 bg-red-50 text-red-500 dark:border-red-900 dark:bg-red-950/40"
-            : "border-zinc-200 bg-zinc-50 text-zinc-500 dark:border-zinc-700 dark:bg-zinc-900"
-        }`}
-      >
-        <span className="whitespace-pre-wrap break-words">{message.content}</span>
-        <span className="flex items-center gap-1 text-[10px]">
-          {message.failed ? "Not sent" : "…"}
-          {message.failed && (
-            <button onClick={() => onRetry(message)} className="font-semibold underline">
-              Retry
-            </button>
-          )}
-        </span>
       </div>
     </div>
   );

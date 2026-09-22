@@ -111,11 +111,11 @@ export default function RideDetailPage({ params }: { params: Promise<{ rideId: s
         else playStopSound();
       }
     });
-    const offEnded = _onSocketEvent<{ id: string; status: string }>("ride:ended", (payload) => {
+    const offEnded = _onSocketEvent<{ id: string; status: string; reason?: "inactive" }>("ride:ended", (payload) => {
       setRide((current) => (current ? { ...current, status: "ended", endedAt: new Date().toISOString() } : current));
       if (payload.id !== rideId) return;
       exitVoice(false);
-      setVoiceMessage("Ride ended by the creator");
+      setVoiceMessage(payload.reason === "inactive" ? "Ride ended after being idle too long" : "Ride ended by the creator");
     });
     return () => {
       offLeft();

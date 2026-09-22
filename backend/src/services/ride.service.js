@@ -51,7 +51,14 @@ async function create(creatorId, { name, voiceMode = 'ptt', maxParticipants } = 
     const code = await allocateInviteCode(transaction);
 
     const created = await RideSession.create(
-      { creatorId, name: String(name).trim(), voiceMode, inviteCode: code, maxParticipants: cap },
+      {
+        creatorId,
+        name: String(name).trim(),
+        voiceMode,
+        inviteCode: code,
+        maxParticipants: cap,
+        lastActivityAt: new Date(),
+      },
       { transaction },
     );
 
@@ -127,6 +134,9 @@ async function join({ rideId, code }, userId) {
     if (!ride) throw ApiError.notFound('Ride not found');
     if (ride.status !== 'active') throw ApiError.conflict('That ride has already ended');
 
+    // Any join counts as activity.
+    await ride.update({ lastActivityAt: new Date() }, { transaction });
+
     const existing = await RideParticipant.findOne({
       where: { rideSessionId: ride.id, userId },
       transaction,
@@ -170,7 +180,62 @@ async function leave(rideId, userId) {
     { status: 'left', leftAt: new Date() },
     { where: { rideSessionId: rideId, userId, status: 'joined' } },
   );
+  if (updated > 0) await touchActivity(rideId);
   return { left: updated > 0 };
+}
+
+/**
+ * Pokes a ride's activity clock forward. Used after joins, leaves, distress
+ * signals, and live voice traffic so an active ride is never ended by the idle
+ * sweeper. Only touches rides that are still active.
+ */
+async function touchActivity(rideId) {
+  await RideSession.update(
+    { lastActivityAt: new Date() },
+    { where: { id: rideId, status: 'active' } },
+  );
+}
+
+/**
+ * Ends every active ride that has been quiet for the idle threshold.
+ *
+ * Each ride is re-checked under a row lock so a rider who signs in mid-run is not
+ * raced out by the sweeper. Returns the ended rides so callers can broadcast
+ * `ride:ended` to each room.
+ */
+async function expireIdleRides(now = new Date()) {
+  const cutoff = new Date(now.getTime() - env.limits.rideIdleEndMs);
+  const stale = await RideSession.findAll({
+    where: {
+      status: 'active',
+      lastActivityAt: { [Op.lt]: cutoff },
+    },
+    attributes: ['id'],
+    limit: 500,
+  });
+
+  const ended = [];
+  for (const ride of stale) {
+    await sequelize.transaction(async (transaction) => {
+      const locked = await RideSession.findByPk(ride.id, {
+        transaction,
+        lock: transaction.LOCK.UPDATE,
+      });
+      if (!locked) return;
+      if (locked.status !== 'active') return;
+      if (new Date(locked.lastActivityAt).getTime() >= cutoff.getTime()) return;
+
+      const endedAt = new Date();
+      await locked.update({ status: 'ended', endedAt }, { transaction });
+      await RideParticipant.update(
+        { status: 'left', leftAt: endedAt },
+        { where: { rideSessionId: ride.id, status: 'joined' }, transaction },
+      );
+      ended.push({ id: ride.id, status: 'ended', endedAt: endedAt.toISOString(), reason: 'inactive' });
+    });
+  }
+
+  return ended;
 }
 
 /** Ends a ride. Creator only; also marks every remaining rider as departed. */
@@ -210,6 +275,7 @@ async function setVoiceMode(rideId, actorId, voiceMode) {
   if (ride.status !== 'active') throw ApiError.conflict('That ride has already ended');
 
   await ride.update({ voiceMode });
+  await touchActivity(rideId);
   return { id: ride.id, voiceMode };
 }
 
@@ -288,6 +354,7 @@ async function setSignal(rideId, userId, kind, active) {
   if (participant.rideSession.status !== 'active') throw ApiError.conflict('That ride has already ended');
 
   await participant.update({ [field]: active ? new Date() : null });
+  await touchActivity(rideId);
   return { kind, active: active ? participant[field] : null };
 }
 
@@ -369,6 +436,8 @@ module.exports = {
   isActiveParticipant,
   join,
   leave,
+  touchActivity,
+  expireIdleRides,
   end,
   setVoiceMode,
   listJoinable,

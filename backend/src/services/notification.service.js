@@ -42,6 +42,22 @@ async function create({ userId, actorId = null, type, entityType = null, entityI
     notification.actor = await User.findByPk(actorId);
   }
 
+  // Rider-facing email notifications. Same fire-and-forget seam as the admin
+  // alert: a slow or unconfigured mail provider must never delay the response
+  // or roll back the stored notification.
+  if (env.email.enabled) {
+    queueMicrotask(async () => {
+      try {
+        const recipient = await User.findByPk(userId, { attributes: ['id', 'email'] });
+        if (!recipient?.email) return;
+        const { subject, text, html } = buildEmailPayload(notification);
+        await emailService.sendTransactional({ to: recipient.email, subject, text, html });
+      } catch (error) {
+        logger.warn({ error: error.message, userId, type }, 'notification email failed');
+      }
+    });
+  }
+
   // Admin notifications fire on their own Brevo seam — fire-and-forget, so a
   // failed (or unconfigured) transactional send never touches the notification row.
   if (env.email.enabled && env.admin.emails.length) {
@@ -110,6 +126,103 @@ function buildPushPayload(notification) {
 
   return {
     siteNotifications: [{ ...copy, type, entityType, entityId, notificationId: id, data }],
+  };
+}
+
+/**
+ * The email copy for a notification. Mirrors the web-push/in-app copy so the
+ * delivery lanes stay consistent; `button` deep-links back into the app.
+ */
+function buildEmailPayload(notification) {
+  const actor = notification.actor;
+  const actorName = actor?.displayName ?? actor?.username ?? 'Someone';
+  const actorUsername = actor?.username;
+  const { type, data = {} } = notification;
+
+  const frontend = env.frontendUrl.replace(/\/+$/, '');
+  const appHref = `${frontend}/app`;
+  const postHref = appHref;
+  const communitySlug = typeof data.communitySlug === 'string' ? data.communitySlug : null;
+  const communityHref = communitySlug ? `${frontend}/app/communities/${communitySlug}` : appHref;
+  const profileHref = actorUsername ? `${frontend}/app/profile/${actorUsername}` : null;
+
+  let subject = 'New RideWing notification';
+  let preview = `${actorName} did something on RideWing.`;
+  let paragraphs = [];
+  let button = null;
+
+  switch (type) {
+    case 'post_like':
+      subject = `${actorName} liked your post`;
+      preview = `${actorName} liked your post on RideWing.`;
+      button = { href: postHref, label: 'View post' };
+      break;
+    case 'post_comment':
+      subject = `${actorName} commented on your post`;
+      preview = `${actorName} commented on your post on RideWing.`;
+      button = { href: postHref, label: 'View post' };
+      break;
+    case 'comment_reply':
+      subject = `${actorName} replied to your comment`;
+      preview = `${actorName} replied to your comment on RideWing.`;
+      button = { href: postHref, label: 'View post' };
+      break;
+    case 'post_share':
+      subject = `${actorName} shared your post`;
+      preview = `${actorName} shared your post on RideWing.`;
+      button = { href: postHref, label: 'View post' };
+      break;
+    case 'follow':
+      subject = `${actorName} followed you`;
+      preview = `${actorName} is now following you on RideWing.`;
+      button = profileHref ? { href: profileHref, label: `View @${actorUsername}` } : null;
+      break;
+    case 'community_join_request':
+      subject = `${actorName} wants to join your community`;
+      preview = `${actorName} has requested to join ${communitySlug ? `community ${communitySlug}` : 'your community'}.`;
+      button = { href: communityHref, label: 'Review request' };
+      break;
+    case 'community_join_approved':
+      subject = 'Your community request was approved';
+      preview = `You can now take part in ${communitySlug ? `community ${communitySlug}` : 'your community'}.`;
+      button = { href: communityHref, label: 'Open community' };
+      break;
+    case 'community_join_rejected':
+      subject = 'Your community request was declined';
+      preview = `Your request to join ${communitySlug ? `community ${communitySlug}` : 'a community'} was declined.`;
+      break;
+    case 'community_role_changed':
+      subject = 'Your community role changed';
+      preview = `Your role in ${communitySlug ? `community ${communitySlug}` : 'your community'} was updated.`;
+      button = { href: communityHref, label: 'Open community' };
+      break;
+    case 'message': {
+      subject = `${actorName} sent you a message`;
+      const snippet = typeof data.content === 'string' ? data.content.trim() : '';
+      preview = snippet ? `"${snippet.slice(0, 160)}"` : 'Tap through to read the message.';
+      paragraphs = [`${actorName} sent you a message in RideWing.`];
+      button = { href: `${frontend}/app/messages`, label: 'Read message' };
+      break;
+    }
+    case 'ride_invite':
+      subject = `${actorName} invited you to a ride`;
+      preview = `${actorName} invited you to join a ride on RideWing.`;
+      button = { href: `${frontend}/app/rides`, label: 'View ride' };
+      break;
+    case 'support_ticket':
+      subject = 'Your support ticket was resolved';
+      preview = `A member of the RideWing team resolved your support ticket${data.subject ? ` "${data.subject}"` : ''}.`;
+      button = { href: `${frontend}/app/support`, label: 'View ticket' };
+      break;
+    default:
+      break;
+  }
+
+  const text = [preview, ...paragraphs].join('\n');
+  return {
+    subject,
+    text: `${subject}\n\n${text}`,
+    html: emailService.renderHtml({ title: subject, preview, paragraphs, button }),
   };
 }
 

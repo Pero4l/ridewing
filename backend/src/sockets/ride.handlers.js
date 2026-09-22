@@ -24,6 +24,15 @@ const { toAckError } = require('./chat.handlers');
 
 const rideSchema = z.object({ rideId: z.string().uuid() }).strict();
 
+/** Per-socket throttle so live traffic does not hit the DB every signal. */
+const activityTouch = new Map();
+function touchRideActivity(rideId) {
+  const now = Date.now();
+  if ((activityTouch.get(socket.id) ?? 0) > now - 60_000) return;
+  activityTouch.set(socket.id, now);
+  rideService.touchActivity(rideId).catch(() => {});
+}
+
 // SDP blobs are large but bounded; a cap stops a client from using signaling as a
 // data channel for arbitrary payloads.
 const sdpSchema = z
@@ -107,6 +116,7 @@ module.exports = function registerRideHandlers(io, socket) {
 
       await socket.join(rideRoom(rideId));
       socket.data.rides.add(rideId);
+      touchRideActivity(rideId);
 
       const peers = await peersIn(rideId, socket.id);
 
@@ -137,11 +147,13 @@ module.exports = function registerRideHandlers(io, socket) {
     }
   });
 
-  async function leaveRide(rideId) {
+  function leaveRide(rideId) {
     if (!socket.data.rides.has(rideId)) return;
     socket.data.rides.delete(rideId);
-    await socket.leave(rideRoom(rideId));
-    socket.to(rideRoom(rideId)).emit('ride:peer-left', { rideId, socketId: socket.id, userId });
+    touchRideActivity(rideId);
+    return socket.leave(rideRoom(rideId)).then(() => {
+      socket.to(rideRoom(rideId)).emit('ride:peer-left', { rideId, socketId: socket.id, userId });
+    });
   }
 
   /** Relays an SDP offer or answer to one peer in the same ride. */
@@ -169,6 +181,7 @@ module.exports = function registerRideHandlers(io, socket) {
         description,
       });
 
+      touchRideActivity(rideId);
       return reply({ ok: true });
     } catch (error) {
       return reply(toAckError(error));
@@ -198,6 +211,7 @@ module.exports = function registerRideHandlers(io, socket) {
         candidate,
       });
 
+      touchRideActivity(rideId);
       return reply({ ok: true });
     } catch (error) {
       return reply(toAckError(error));
@@ -215,6 +229,9 @@ module.exports = function registerRideHandlers(io, socket) {
       if (!voiceStateBucket.tryRemove()) return;
       const { rideId, isTransmitting, isMuted } = voiceStateSchema.parse(payload);
       if (!socket.rooms.has(rideRoom(rideId))) return;
+
+      // Somebody actually using their mic counts as ride activity.
+      if (isTransmitting && !isMuted) touchRideActivity(rideId);
 
       socket.to(rideRoom(rideId)).emit('ride:voice-state', {
         rideId,

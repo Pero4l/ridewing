@@ -64,6 +64,9 @@ const schema = z
     MAX_MESSAGE_LENGTH: z.coerce.number().int().positive().max(10000).default(2000),
     MAX_RIDE_PARTICIPANTS: z.coerce.number().int().positive().max(50).default(8),
 
+    // Rides idle for longer than this are ended automatically.
+    RIDE_IDLE_END_HOURS: z.coerce.number().int().positive().max(168).default(2),
+
     // WebRTC ICE servers. TURN credentials are served to authenticated clients
     // only — they are never baked into the frontend bundle.
     STUN_URLS: z.string().default('stun:stun.l.google.com:19302'),
@@ -183,6 +186,7 @@ const env = {
   limits: {
     maxMessageLength: raw.MAX_MESSAGE_LENGTH,
     maxRideParticipants: raw.MAX_RIDE_PARTICIPANTS,
+    rideIdleEndMs: raw.RIDE_IDLE_END_HOURS * 60 * 60 * 1000,
   },
 
   webrtc: {

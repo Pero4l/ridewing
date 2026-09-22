@@ -32,6 +32,9 @@ module.exports = (sequelize, DataTypes) => {
       // V1 uses a mesh topology, so participant count is capped deliberately.
       maxParticipants: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 8 },
       endedAt: { type: DataTypes.DATE, allowNull: true },
+      // Last moment of rider activity; the idle sweeper ends rides that have
+      // been quiet for the threshold. Every ride action pokes this forward.
+      lastActivityAt: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
     },
     {
       tableName: 'ride_sessions',
