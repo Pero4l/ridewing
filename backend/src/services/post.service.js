@@ -23,6 +23,7 @@ const ApiError = require('../utils/ApiError');
 const { normalizeLimit, decodeCursor, buildPage } = require('../utils/pagination');
 const notificationService = require('./notification.service');
 const emailService = require('./email.service');
+const { withPosters } = require('./media.service');
 
 const MAX_MEDIA_ITEMS = 9;
 
@@ -143,20 +144,38 @@ async function update(postId, userId, { content, media: rawMedia }) {
   return toJSON(post, { viewerLiked: Boolean(liked) });
 }
 
+/**
+ * `viewerId` is optional: the feed and post detail are readable by a signed-out
+ * visitor. Sequelize drops `undefined` from a `where` clause, which would turn
+ * these "did I like this?" lookups into an unfiltered scan and match somebody
+ * else's like, so anonymous is normalized to an explicit `null` that no row can
+ * satisfy.
+ */
+const ANONYMOUS_VIEWER = null;
+
 async function getPost(postId, viewerId) {
+  const viewer = viewerId ?? ANONYMOUS_VIEWER;
   const post = await loadPostOrThrow(postId);
-  const [liked, followRow] = await Promise.all([
-    PostLike.findOne({ where: { postId: post.id, userId: viewerId }, attributes: ['id'] }),
-    post.userId === viewerId
+  const [liked, followRow, reposted] = await Promise.all([
+    viewer ? PostLike.findOne({ where: { postId: post.id, userId: viewer }, attributes: ['id'] }) : null,
+    !viewer || post.userId === viewer
       ? null
-      : Follow.findOne({ where: { followerId: viewerId, followingId: post.userId }, attributes: ['id'] }),
+      : Follow.findOne({ where: { followerId: viewer, followingId: post.userId }, attributes: ['id'] }),
+    viewer
+      ? PostShare.findOne({ where: { postId: post.id, userId: viewer, kind: 'repost' }, attributes: ['id'] })
+      : null,
   ]);
-  return toJSON(post, { viewerLiked: Boolean(liked), viewerIsFollowingAuthor: Boolean(followRow) });
+  return toJSON(post, {
+    viewerLiked: Boolean(liked),
+    viewerIsFollowingAuthor: Boolean(followRow),
+    viewerReposted: Boolean(reposted),
+  });
 }
 
 async function feed(userId, { limit, cursor } = {}) {
   const pageSize = normalizeLimit(limit, 20);
   const decoded = decodeCursor(cursor);
+  const viewer = userId ?? ANONYMOUS_VIEWER;
 
   // Facebook-style feed: every rider's posts, newest first, so riders always
   // have something new to scroll even before they follow anyone.
@@ -177,23 +196,34 @@ async function feed(userId, { limit, cursor } = {}) {
   const postIds = page.items.map((post) => post.id);
   const authorIds = page.items.map((post) => post.userId);
 
-  const [likedRows, followingRows] = await Promise.all([
-    postIds.length
-      ? PostLike.findAll({ where: { postId: { [Op.in]: postIds }, userId }, attributes: ['postId'] })
+  const [likedRows, followingRows, repostedRows] = await Promise.all([
+    viewer && postIds.length
+      ? PostLike.findAll({ where: { postId: { [Op.in]: postIds }, userId: viewer }, attributes: ['postId'] })
       : [],
-    authorIds.length
+    viewer && authorIds.length
       ? Follow.findAll({
-          where: { followerId: userId, followingId: { [Op.in]: authorIds } },
+          where: { followerId: viewer, followingId: { [Op.in]: authorIds } },
           attributes: ['followingId'],
+        })
+      : [],
+    viewer && postIds.length
+      ? PostShare.findAll({
+          where: { postId: { [Op.in]: postIds }, userId: viewer, kind: 'repost' },
+          attributes: ['postId'],
         })
       : [],
   ]);
   const likedSet = new Set(likedRows.map((row) => row.postId));
   const followingSet = new Set(followingRows.map((row) => row.followingId));
+  const repostedSet = new Set(repostedRows.map((row) => row.postId));
 
   return {
     items: page.items.map((post) =>
-      toJSON(post, { viewerLiked: likedSet.has(post.id), viewerIsFollowingAuthor: followingSet.has(post.userId) }),
+      toJSON(post, {
+        viewerLiked: likedSet.has(post.id),
+        viewerIsFollowingAuthor: followingSet.has(post.userId),
+        viewerReposted: repostedSet.has(post.id),
+      }),
     ),
     pageInfo: page.pageInfo,
   };
@@ -322,26 +352,82 @@ async function addComment(postId, userId, rawContent, parentId) {
 }
 
 /** "Share" records that this rider passed the post on (repost). */
-async function share(postId, userId) {
+/**
+ * `share` broadcasts a post to the sharer's followers; `repost` puts it on
+ * their own profile. They are separate intents with separate counts, so they
+ * share a helper rather than a code path — the only differences are the `kind`,
+ * the counter column, and the notification.
+ *
+ * Both are idempotent. `findOrCreate` reports whether it inserted, and the
+ * counter is only moved when it did — the previous unconditional `increment`
+ * inflated the number every time somebody tapped share twice.
+ */
+async function addInteraction(postId, userId, { kind, counter, notify }) {
   return sequelize.transaction(async (transaction) => {
     const post = await Post.findByPk(postId, { transaction });
     if (!post) throw ApiError.notFound('Post not found');
 
-    await PostShare.findOrCreate({ where: { postId, userId }, defaults: { postId, userId }, transaction });
-    await Post.increment('shareCount', { by: 1, where: { id: postId }, transaction });
+    const [row, created] = await PostShare.findOrCreate({
+      where: { postId, userId, kind },
+      defaults: { postId, userId, kind },
+      transaction,
+    });
+    if (!created) return { active: true, alreadyDone: true };
 
-    transaction.afterCommit(() =>
-      notificationService.create({
-        userId: post.userId,
-        actorId: userId,
-        type: 'post_share',
-        entityType: 'post',
-        entityId: postId,
-        data: { postId },
-      }),
-    );
-    return { shared: true };
+    // `counter` is the raw column, so the interpolation into the SQL below and
+    // the attribute name here stay in one place.
+    await sequelize.query(`UPDATE posts SET ${counter} = ${counter} + 1 WHERE id = :id`, {
+      replacements: { id: postId },
+      transaction,
+    });
+
+    // Reposting your own post is a no-op as far as the author is concerned, and
+    // the notification service would drop it anyway; the early return just avoids
+    // the write.
+    if (notify && post.userId !== userId) {
+      transaction.afterCommit(() =>
+        notificationService.create({
+          userId: post.userId,
+          actorId: userId,
+          type: 'post_share',
+          entityType: 'post',
+          entityId: postId,
+          data: { postId, kind },
+        }),
+      );
+    }
+    return { active: true, alreadyDone: false };
   });
+}
+
+async function removeInteraction(postId, userId, { kind, counter }) {
+  return sequelize.transaction(async (transaction) => {
+    const post = await Post.findByPk(postId, { transaction });
+    if (!post) throw ApiError.notFound('Post not found');
+
+    const destroyed = await PostShare.destroy({ where: { postId, userId, kind }, transaction });
+    if (destroyed > 0) {
+      // GREATEST guards against the counter drifting negative if the row count
+      // and the cached counter ever disagree.
+      await sequelize.query(
+        `UPDATE posts SET ${counter} = GREATEST(${counter} - 1, 0) WHERE id = :id`,
+        { replacements: { id: postId }, transaction },
+      );
+    }
+    return { active: false };
+  });
+}
+
+async function share(postId, userId) {
+  return addInteraction(postId, userId, { kind: 'share', counter: 'share_count', notify: true });
+}
+
+async function repost(postId, userId) {
+  return addInteraction(postId, userId, { kind: 'repost', counter: 'repost_count', notify: true });
+}
+
+async function unrepost(postId, userId) {
+  return removeInteraction(postId, userId, { kind: 'repost', counter: 'repost_count' });
 }
 
 async function remove(postId, userId) {
@@ -361,9 +447,23 @@ async function userPosts(username, { tab = 'posts' } = {}) {
   if (!user) throw ApiError.notFound('Rider not found');
 
   let rows;
-  if (tab === 'shared') {
+  // Who reposted, so a card in this tab can be labelled. Filled in below.
+  let reposters = new Map();
+  if (tab === 'reposts') {
+    const reposts = await PostShare.findAll({
+      where: { userId: user.id, kind: 'repost' },
+      order: [['createdAt', 'DESC']],
+      limit: 100,
+    });
+    const postIds = reposts.map((share) => share.postId);
+    reposters = new Map(reposts.map((share) => [share.postId, user]));
+    rows = postIds.length
+      ? await Post.findAll({ where: { id: { [Op.in]: postIds } }, include: [{ model: User, as: 'user' }] })
+      : [];
+    rows.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  } else if (tab === 'shared') {
     const shares = await PostShare.findAll({
-      where: { userId: user.id },
+      where: { userId: user.id, kind: 'share' },
       attributes: ['postId'],
       order: [['createdAt', 'DESC']],
       limit: 100,
@@ -389,19 +489,33 @@ async function userPosts(username, { tab = 'posts' } = {}) {
     });
   }
 
-  const items = rows.map((post) => toJSON(post, { viewerLiked: false }));
+  const items = rows.map((post) => {
+    const reposter = reposters.get(post.id);
+    return toJSON(post, {
+      viewerLiked: false,
+      // Every post in this tab is by definition one the viewer (or whoever owns
+      // the profile) has reposted, so the client can render the toggle as on.
+      viewerReposted: Boolean(reposter),
+      repostedBy: reposter ? reposter.toPublicJSON() : null,
+    });
+  });
   return { items, pageInfo: { hasMore: false, nextCursor: null } };
 }
 
-function toJSON(post, { viewerLiked, viewerIsFollowingAuthor = false }) {
+function toJSON(post, { viewerLiked, viewerIsFollowingAuthor = false, viewerReposted = false, repostedBy = null }) {
   return {
     id: post.id,
     content: post.content,
-    media: post.media ?? [],
+    media: withPosters(post.media ?? []),
     likeCount: post.likeCount,
     commentCount: post.commentCount,
     shareCount: post.shareCount,
+    repostCount: post.repostCount ?? 0,
     viewerLiked,
+    viewerReposted,
+    // Set on a post shown in someone else's reposts tab so the card can say
+    // "reposted by X" without the client having to know who is looking.
+    repostedBy,
     editedAt: post.editedAt ? post.editedAt.toISOString() : null,
     mediaEditableUntil: new Date(post.createdAt.getTime() + MEDIA_EDIT_WINDOW_MS).toISOString(),
     createdAt: post.createdAt.toISOString(),
@@ -411,4 +525,19 @@ function toJSON(post, { viewerLiked, viewerIsFollowingAuthor = false }) {
   };
 }
 
-module.exports = { create, update, feed, getPost, like, unlike, listComments, addComment, share, remove, userPosts, canEditMedia };
+module.exports = {
+  create,
+  update,
+  feed,
+  getPost,
+  like,
+  unlike,
+  listComments,
+  addComment,
+  share,
+  repost,
+  unrepost,
+  remove,
+  userPosts,
+  canEditMedia,
+};

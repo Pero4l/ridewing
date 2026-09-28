@@ -28,7 +28,11 @@ function describe(item: NotificationItem): NotificationCopy {
     typeof data.communitySlug === "string" ? data.communitySlug : typeof data.slug === "string" ? data.slug : null;
   const communityLink = communitySlug ? `/app/communities/${communitySlug}` : null;
   const postId = postIdFrom(data);
-  const postLink = postId ? `/app` : null;
+  // The post detail route exists, so a post notification links straight to the
+  // post rather than dropping the rider back on the feed.
+  const postLink = postId ? `/app/posts/${postId}` : null;
+  const rideId = typeof data.rideId === "string" ? data.rideId : item.entityId;
+  const rideLink = rideId ? `/app/rides/${rideId}` : "/app/rides";
 
   switch (item.type) {
     case "follow":
@@ -44,13 +48,17 @@ function describe(item: NotificationItem): NotificationCopy {
     case "community_role_changed":
       return { text: communitySlug ? `changed your role in ${communitySlug}` : "changed your role in a community", href: communityLink };
     case "ride_invite":
-      return { text: "invited you to a ride", href: `/app/rides` };
+      return { text: "invited you to a ride", href: rideLink };
+    // Distress signals are worded as the rider would say them out loud rather
+    // than as a system event.
+    case "ride_signal":
+      return { text: data.kind === "stop" ? "has stopped" : "needs help", href: rideLink };
     case "post_like":
       return { text: "liked your post", href: postLink };
     case "post_comment":
       return { text: "commented on your post", href: postLink };
     case "post_share":
-      return { text: "shared your post", href: postLink };
+      return { text: data.kind === "repost" ? "reposted your post" : "shared your post", href: postLink };
     case "comment_reply":
       return { text: "replied to your comment", href: postLink };
     case "support_ticket":

@@ -119,6 +119,15 @@ function buildPushPayload(notification) {
     case 'community_join_rejected': copy.title = 'Your community request was declined'; break;
     case 'community_role_changed': copy.title = 'Your community role changed'; break;
     case 'ride_invite': copy.title = `${actor} invited you to a ride`; break;
+    // A distress signal is the one notification that interrupts. Phrased as an
+    // instruction rather than an announcement so it reads correctly on a lock
+    // screen at a glance.
+    case 'ride_signal':
+      copy.title = data.kind === 'stop' ? `${actor} has stopped` : `${actor} needs help`;
+      copy.body = "Open RideWing to see the ride.";
+      copy.tag = `ride-signal-${data.rideId ?? entityId}`;
+      copy.renotify = true;
+      break;
     case 'message': copy.title = `${actor} sent you a message`; break;
     case 'support_ticket': copy.title = 'Your support ticket was resolved'; break;
     default: break;

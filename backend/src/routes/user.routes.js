@@ -3,14 +3,47 @@
 const express = require('express');
 
 const validate = require('../middleware/validate');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, optionalAuth } = require('../middleware/auth');
 const { writeLimiter } = require('../middleware/rateLimit');
 const userController = require('../controllers/user.controller');
 const userValidator = require('../validators/user.validator');
 
 const router = express.Router();
 
-// Every profile route requires a session — RideWing has no public browsing in V1.
+/**
+ * Public profile browsing: the profile, their posts and their follower lists are
+ * readable without a session, because they are the pages people share links to.
+ * Everything that changes state — following, and the profile itself — still sits
+ * behind `requireAuth` below.
+ */
+router.get(
+  '/:username',
+  optionalAuth,
+  validate({ params: userValidator.usernameParam }),
+  userController.getProfile,
+);
+
+router.get(
+  '/:username/posts',
+  optionalAuth,
+  validate({ params: userValidator.usernameParam, query: userValidator.listQuery }),
+  userController.listPosts,
+);
+
+router.get(
+  '/:username/followers',
+  optionalAuth,
+  validate({ params: userValidator.usernameParam, query: userValidator.listQuery }),
+  userController.listFollowers,
+);
+
+router.get(
+  '/:username/following',
+  optionalAuth,
+  validate({ params: userValidator.usernameParam, query: userValidator.listQuery }),
+  userController.listFollowing,
+);
+
 router.use(requireAuth);
 
 router.get('/search', validate({ query: userValidator.searchQuery }), userController.search);
@@ -20,12 +53,6 @@ router.patch(
   writeLimiter,
   validate({ body: userValidator.updateProfile }),
   userController.updateProfile,
-);
-
-router.get(
-  '/:username',
-  validate({ params: userValidator.usernameParam }),
-  userController.getProfile,
 );
 
 router.post(
@@ -40,24 +67,6 @@ router.delete(
   writeLimiter,
   validate({ params: userValidator.usernameParam }),
   userController.unfollow,
-);
-
-router.get(
-  '/:username/followers',
-  validate({ params: userValidator.usernameParam, query: userValidator.listQuery }),
-  userController.listFollowers,
-);
-
-router.get(
-  '/:username/following',
-  validate({ params: userValidator.usernameParam, query: userValidator.listQuery }),
-  userController.listFollowing,
-);
-
-router.get(
-  '/:username/posts',
-  validate({ params: userValidator.usernameParam, query: userValidator.listQuery }),
-  userController.listPosts,
 );
 
 module.exports = router;

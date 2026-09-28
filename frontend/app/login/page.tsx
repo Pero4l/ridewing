@@ -7,6 +7,7 @@ import { useSession } from "@/lib/auth";
 import { ApiError } from "@/lib/api";
 import { useToast } from "@/components/toast";
 import { AuthLink, AuthShell } from "@/components/auth-shell";
+import { safeRedirect } from "@/lib/redirect";
 import { Button, Field, Input, PasswordInput } from "@/components/ui";
 
 export default function LoginPage() {
@@ -30,7 +31,7 @@ function LoginInner() {
   const [submitting, setSubmitting] = useState(false);
 
   // Only ever redirect to a same-app relative path.
-  const redirectTo = typeof next === "string" && next.startsWith("/") && !next.startsWith("//") ? next : "/app";
+  const redirectTo = safeRedirect(next);
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();

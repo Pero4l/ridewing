@@ -8,8 +8,10 @@ const create = asyncHandler(async (req, res) => {
   res.status(201).json({ post });
 });
 
+// `req.user` is optional on the two read endpoints, so the viewer is read
+// defensively — a signed-out visitor simply has no likes or follows to report.
 const listFeed = asyncHandler(async (req, res) => {
-  const page = await postService.feed(req.user.id, req.validatedQuery);
+  const page = await postService.feed(req.user?.id, req.validatedQuery);
   res.json(page);
 });
 
@@ -19,7 +21,7 @@ const update = asyncHandler(async (req, res) => {
 });
 
 const getDetail = asyncHandler(async (req, res) => {
-  const post = await postService.getPost(req.params.id, req.user.id);
+  const post = await postService.getPost(req.params.id, req.user?.id);
   res.json({ post });
 });
 
@@ -48,9 +50,32 @@ const share = asyncHandler(async (req, res) => {
   res.json(result);
 });
 
+const repost = asyncHandler(async (req, res) => {
+  const result = await postService.repost(req.params.id, req.user.id);
+  res.json(result);
+});
+
+const unrepost = asyncHandler(async (req, res) => {
+  const result = await postService.unrepost(req.params.id, req.user.id);
+  res.json(result);
+});
+
 const remove = asyncHandler(async (req, res) => {
   const result = await postService.remove(req.params.id, req.user.id);
   res.json(result);
 });
 
-module.exports = { create, update, listFeed, getDetail, like, unlike, listComments, addComment, share, remove };
+module.exports = {
+  create,
+  update,
+  listFeed,
+  getDetail,
+  like,
+  unlike,
+  listComments,
+  addComment,
+  share,
+  repost,
+  unrepost,
+  remove,
+};

@@ -24,8 +24,8 @@ function requireWebPush() {
     throw ApiError.notFound('Push messaging is not configured');
   }
   if (!webPush) {
-    // Deliberately not in package.json: the backend must boot without it.
-    // Installed via `npm i web-push` on the host that sends pushes.
+    // Required lazily rather than eagerly: the backend must still boot, test and
+    // serve every other route on a host with no VAPID keys configured.
     // eslint-disable-next-line global-require
     webPush = require('web-push');
     webPush.setVapidDetails(

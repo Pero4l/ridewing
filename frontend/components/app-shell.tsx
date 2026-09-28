@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useSession } from "@/lib/auth";
 import { getSocket } from "@/lib/socket";
+import { registerServiceWorker } from "@/lib/push";
 import { NotificationsProvider, useNotifications } from "@/components/notifications-context";
 import { Avatar } from "@/components/avatar";
 import { InlineSpinner } from "@/components/spinner";
@@ -33,12 +34,34 @@ const TABS = [
   { href: "/app/settings", label: "Settings", icon: CogIcon },
 ];
 
+/**
+ * The routes a signed-out visitor may read.
+ *
+ * Feed, profiles and a single post are the pages people send links to, so they
+ * are the ones that have to work without an account. Everything else needs a
+ * session and is bounced to /login. This list is the single place that decides,
+ * so a new route is private by default and has to be named here on purpose.
+ */
+const PUBLIC_PATHS: Array<string | RegExp> = [
+  "/app",
+  "/app/posts",
+  /^\/app\/posts\/[^/]+$/,
+  /^\/app\/profile\/[^/]+$/,
+];
+
+function isPublicPath(pathname: string): boolean {
+  return PUBLIC_PATHS.some((rule) => (typeof rule === "string" ? pathname === rule || pathname.startsWith(`${rule}/`) : rule.test(pathname)));
+}
+
 export function AppShell({ children }: { children: ReactNode }) {
   const { status, user } = useSession();
   const router = useRouter();
+  const pathname = usePathname();
+  const guest = status === "guest";
+  const allowed = !guest || isPublicPath(pathname);
 
   useEffect(() => {
-    if (status === "guest") router.replace("/login");
+    if (status === "guest" && !isPublicPath(pathname)) router.replace("/login");
     if (status === "authed") {
       // Establish the socket when a session exists. Reconnects are handled by
       // socket.io itself; token rotation rebuilds the instance in getSocket().
@@ -47,10 +70,28 @@ export function AppShell({ children }: { children: ReactNode }) {
       } catch {
         // No token yet — the next render cycle will connect.
       }
+      // The worker has to exist before a push can ever arrive, so it is
+      // registered on every authenticated boot rather than only when the rider
+      // first visits the settings toggle.
+      void registerServiceWorker();
     }
-  }, [status, router]);
+  }, [status, pathname, router]);
 
-  if (status === "loading" || status === "guest") {
+  // Tapping a push notification focuses this tab and asks us where to go. The
+  // service worker cannot know the in-app route for every notification type, so
+  // it hands the URL over and we navigate with the router.
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      const data = event.data as { type?: string; url?: string } | null;
+      if (data?.type !== "ridewing:navigate" || typeof data.url !== "string") return;
+      if (!data.url.startsWith("/")) return;
+      router.push(data.url);
+    };
+    navigator.serviceWorker?.addEventListener("message", onMessage);
+    return () => navigator.serviceWorker?.removeEventListener("message", onMessage);
+  }, [router]);
+
+  if (status === "loading" || !allowed) {
     return (
       <div className="grid min-h-dvh place-items-center">
         <InlineSpinner />
@@ -63,7 +104,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div className="relative mx-auto flex min-h-dvh w-full max-w-2xl flex-col">
         <Header user={user} />
         <main className="flex-1 pb-32">{children}</main>
-        <BottomNav />
+        <BottomNav guest={guest} />
       </div>
     </NotificationsProvider>
   );
@@ -90,59 +131,70 @@ function Header({ user }: { user: Me | null }) {
       <div className="flex items-center justify-between">
         <Brand />
 
-        <div className="flex items-center gap-0.5">
+        {user ? (
+          <div className="flex items-center gap-0.5">
+            <Link
+              href="/app/rides/new"
+              className="grid h-9 w-9 place-items-center rounded-xl text-zinc-500 transition-colors hover:bg-emerald-50 hover:text-emerald-700 dark:text-zinc-400 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300"
+              aria-label="Start a ride"
+            >
+              <PlusIcon size={20} />
+            </Link>
+            <Link
+              href="/app/notifications"
+              className="relative grid h-9 w-9 place-items-center rounded-xl text-zinc-500 transition-colors hover:bg-emerald-50 hover:text-emerald-700 dark:text-zinc-400 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300"
+              aria-label="Notifications"
+            >
+              <BellIcon size={20} />
+              {unreadCount > 0 && (
+                <span className="absolute right-0.5 top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+                  {unreadCount > 99 ? "99+" : unreadCount}
+                </span>
+              )}
+            </Link>
+            <Link
+              href={`/app/profile/${user.username}`}
+              aria-label="Your profile"
+              className="ml-1 grid h-9 w-9 place-items-center rounded-xl ring-1 ring-zinc-200/70 transition-shadow hover:ring-emerald-500/60 dark:ring-zinc-700/70"
+            >
+              <Avatar name={user.displayName} username={user.username} image={user.profileImage} size={28} />
+            </Link>
+          </div>
+        ) : (
+          // A guest gets the one action that matters: an account. Everything
+          // else on this chrome is write-only, so it is not rendered at all
+          // rather than shown disabled.
           <Link
-            href="/app/rides/new"
-            className="grid h-9 w-9 place-items-center rounded-xl text-zinc-500 transition-colors hover:bg-emerald-50 hover:text-emerald-700 dark:text-zinc-400 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300"
-            aria-label="Start a ride"
+            href="/register"
+            className="rounded-full bg-emerald-600 px-4 py-1.5 text-sm font-semibold text-white shadow-sm shadow-emerald-600/30 transition-colors hover:bg-emerald-700"
           >
-            <PlusIcon size={20} />
+            Join RideWing
           </Link>
-          <Link
-            href="/app/notifications"
-            className="relative grid h-9 w-9 place-items-center rounded-xl text-zinc-500 transition-colors hover:bg-emerald-50 hover:text-emerald-700 dark:text-zinc-400 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300"
-            aria-label="Notifications"
-          >
-            <BellIcon size={20} />
-            {unreadCount > 0 && (
-              <span className="absolute right-0.5 top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
-                {unreadCount > 99 ? "99+" : unreadCount}
-              </span>
-            )}
-          </Link>
-          <Link
-            href={`/app/profile/${user?.username ?? ""}`}
-            aria-label="Your profile"
-            className="ml-1 grid h-9 w-9 place-items-center rounded-xl ring-1 ring-zinc-200/70 transition-shadow hover:ring-emerald-500/60 dark:ring-zinc-700/70"
-          >
-            <Avatar
-              name={user?.displayName ?? user?.username ?? ""}
-              username={user?.username ?? ""}
-              image={user?.profileImage ?? null}
-              size={28}
-            />
-          </Link>
-        </div>
+        )}
       </div>
     </header>
   );
 }
 
-function BottomNav() {
+function BottomNav({ guest }: { guest: boolean }) {
   const pathname = usePathname();
   const { messageUnread } = useNotifications();
+  // Only surfaces a guest can actually reach. Offering Messages, Rides or
+  // Settings would just bounce to /login, so a signed-out visitor sees the feed
+  // and a single sign-in call to action instead of seven dead ends.
+  const tabs = guest ? TABS.filter((tab) => tab.href === "/app") : TABS;
   const active = useMemo(
     () =>
-      TABS.find((tab) =>
+      tabs.find((tab) =>
         tab.href === "/app" ? pathname === "/app" : pathname === tab.href || pathname.startsWith(`${tab.href}/`),
       ),
-    [pathname],
+    [pathname, tabs],
   );
 
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 flex justify-center px-4 pb-4">
       <div className="flex w-full max-w-sm items-center justify-between gap-1 rounded-2xl border border-zinc-200/80 bg-white/90 p-1.5 shadow-lg shadow-zinc-950/10 backdrop-blur-xl dark:border-zinc-800 dark:bg-zinc-900/90 dark:shadow-black/40">
-        {TABS.map(({ href, label, icon: Icon }) => {
+        {tabs.map(({ href, label, icon: Icon }) => {
           const isActive = active?.href === href;
           const isMessages = href === "/app/messages";
           const isCreate = href === CREATE_HREF;

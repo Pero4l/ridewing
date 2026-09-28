@@ -154,9 +154,15 @@ export default function SupportPage() {
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
     setFormError(null);
+    const trimmedSubject = subject.trim();
+    const trimmedBody = body.trim();
+    if (!trimmedSubject || !trimmedBody) {
+      setFormError("Add a subject and a description so we know how to help.");
+      return;
+    }
     setSubmitting(true);
     try {
-      await api.post("/api/support/tickets", { subject, body });
+      await api.post("/api/support/tickets", { subject: trimmedSubject, body: trimmedBody });
       toast.success("Ticket submitted");
       setSubject("");
       setBody("");

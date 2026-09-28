@@ -60,6 +60,45 @@ function requestMicrophone(): Promise<MediaStream> {
 }
 
 /**
+ * Turns a mic failure into something the rider can act on.
+ *
+ * The old copy answered "Voice is not supported in this browser" for every
+ * failure mode, which is actively wrong for the most common one: an iPhone
+ * loading the app over a plain-HTTP LAN address has no `navigator.mediaDevices`
+ * at all, because Safari only exposes it in a secure context. The rider is not
+ * on an unsupported browser — they are on an insecure origin.
+ */
+function describeMicFailure(error: unknown): string {
+  const secure = typeof window === "undefined" ? true : window.isSecureContext;
+
+  if (error instanceof Error && error.message === "UNSUPPORTED") {
+    if (!secure) {
+      return "Voice needs a secure (HTTPS) connection. Open RideWing over HTTPS — service workers, notifications and the microphone are all blocked on plain HTTP.";
+    }
+    return "This browser does not support the microphone. Try Chrome, Safari or Firefox on a phone or computer.";
+  }
+
+  const name = error instanceof DOMException ? error.name : String((error as Error)?.name ?? "");
+
+  if (!secure) {
+    return "Voice needs a secure (HTTPS) connection. Microphone access is blocked on plain HTTP, even though the browser supports it.";
+  }
+  if (name === "NotAllowedError") {
+    return "Microphone permission was denied. Allow the microphone in your browser settings, then tap again.";
+  }
+  if (name === "SecurityError") {
+    return "The browser blocked the microphone because this page is not on a secure (HTTPS) connection.";
+  }
+  if (name === "NotFoundError" || name === "OverconstrainedError") {
+    return "No microphone was found on this device.";
+  }
+  if (name === "NotReadableError" || name === "AbortError") {
+    return "The microphone is busy in another app. Close it and try again.";
+  }
+  return "Could not access the microphone. Check your device settings and try again.";
+}
+
+/**
  * WebRTC mesh voice for a ride.
  *
  * Peers are addressed by socket id and connected in a full mesh. Existing peers
@@ -120,20 +159,7 @@ export class VoiceRoom {
   }
 
   private describeMicFailure(error: unknown): string {
-    if (error instanceof Error && error.message === "UNSUPPORTED") {
-      return typeof window !== "undefined" && window.isSecureContext === false
-        ? "Voice needs a secure (HTTPS) connection in this browser"
-        : "Voice is not supported in this browser";
-    }
-    // NotAllowedError / NotFoundError / hardware busy, etc.
-    const name = error instanceof DOMException ? error.name : String((error as Error)?.name ?? "");
-    if (name === "NotAllowedError") {
-      return "Microphone permission was denied. Allow the microphone to join voice.";
-    }
-    if (name === "NotFoundError") {
-      return "No microphone was found on this device.";
-    }
-    return "Could not access the microphone. Check your device settings and try again.";
+    return describeMicFailure(error);
   }
 
   // ── roster helpers ───────────────────────────────────────────────────────

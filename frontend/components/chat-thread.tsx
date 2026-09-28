@@ -104,15 +104,44 @@ export function ChatThread({
       });
     });
 
+    // A socket drop while the thread is open means live events were missed, so
+    // every reconnect and every return to the tab reconciles against the server.
+    // Without this a message can sit invisible until the rider navigates away
+    // and back, which is exactly the "it only refreshes when I change page" bug.
+    const offConnect = onSocketEvent("connect", () => void syncLatest());
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void syncLatest();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+
     return () => {
       cancelled = true;
       offNew();
       offDeleted();
       offTyping();
+      offConnect();
+      document.removeEventListener("visibilitychange", onVisible);
       emitWithAck<{ conversationId: string }>("conversation:leave", { conversationId }).catch(() => {});
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId]);
+
+  /**
+   * Pulls the newest page and merges anything the thread has not seen, without
+   * disturbing scrollback, optimistic bubbles or failed sends.
+   */
+  async function syncLatest() {
+    try {
+      const page = await api.get<Page<Message>>(`/api/conversations/${conversationId}/messages`);
+      const fresh = page.items.filter((message) => !idsRef.current.has(message.id));
+      if (!fresh.length) return;
+      fresh.forEach((message) => idsRef.current.add(message.id));
+      setMessages((current) => [...current, ...fresh]);
+      if (nearBottomRef.current) scrollToBottom();
+    } catch {
+      // Offline or the ride is mid-restart — the next reconnect reconciles.
+    }
+  }
 
   // Accept a server-confirmed message (ack, HTTP response, or broadcast). If it
   // matches an optimistic message by clientNonce, it replaces that bubble in place

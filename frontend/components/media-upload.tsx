@@ -94,6 +94,7 @@ export type PickedMedia = {
   url: string;
   width: number | null;
   height: number | null;
+  posterUrl?: string;
 };
 
 const ACCEPTED_TYPES: Record<"image" | "video", { ext: string; mime: string[]; maxBytes: number }> = {
@@ -146,7 +147,14 @@ export function MediaPicker({
       setUploading(true);
       try {
         const media = await uploadFile(kind, file);
-        next.push({ mediaId: media.url, kind, url: media.url, width: media.width, height: media.height });
+        next.push({
+          mediaId: media.url,
+          kind,
+          url: media.url,
+          width: media.width,
+          height: media.height,
+          posterUrl: media.posterUrl,
+        });
       } catch (uploadError) {
         onError?.(uploadError instanceof Error ? uploadError.message : "Upload failed");
       } finally {
@@ -174,7 +182,7 @@ export function MediaPicker({
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={entry.url} alt="" className="h-full w-full object-cover" />
               ) : (
-                <video src={entry.url} className="h-full w-full object-cover" muted playsInline />
+                <video src={entry.url} poster={entry.posterUrl} className="h-full w-full object-cover" muted playsInline preload="metadata" />
               )}
               <button
                 type="button"

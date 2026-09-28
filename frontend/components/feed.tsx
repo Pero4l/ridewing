@@ -1,17 +1,28 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { api, ApiError } from "@/lib/api";
 import { useToast } from "@/components/toast";
 import { PostCreator } from "@/components/post-creator";
 import { PostCard } from "@/components/post-card";
-import { EmptyState } from "@/components/ui";
+import { EmptyState, Button } from "@/components/ui";
 import { SectionTitle } from "@/components/ui";
 import { InlineSpinner } from "@/components/spinner";
+import { useSession } from "@/lib/auth";
 import type { Page, Post } from "@/lib/types";
 
+/**
+ * The post feed.
+ *
+ * Readable without a session: the API serves `/api/posts` anonymously, so a
+ * visitor who followed a shared link sees the same posts. The only difference is
+ * that the composer is replaced by a join prompt — writes are rejected server
+ * side regardless, this just avoids showing a control that cannot work.
+ */
 export function Feed() {
   const toast = useToast();
+  const { user } = useSession();
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -70,11 +81,29 @@ export function Feed() {
   return (
     <>
       <SectionTitle>Feed</SectionTitle>
-      <PostCreator
-        onPosted={(post) => {
-          setPosts((current) => [post, ...current]);
-        }}
-      />
+      {user ? (
+        <PostCreator
+          onPosted={(post) => {
+            setPosts((current) => [post, ...current]);
+          }}
+        />
+      ) : (
+        <div className="mx-4 flex flex-col items-center gap-3 rounded-2xl border border-dashed border-zinc-200 p-6 text-center dark:border-zinc-800">
+          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+            Join RideWing to post a ride report, photo or video.
+          </p>
+          <div className="flex gap-2">
+            <Link href="/register">
+              <Button size="sm">Create account</Button>
+            </Link>
+            <Link href="/login">
+              <Button size="sm" variant="secondary">
+                Sign in
+              </Button>
+            </Link>
+          </div>
+        </div>
+      )}
       {loading ? (
         <div className="grid place-items-center py-10">
           <InlineSpinner />
@@ -90,7 +119,7 @@ export function Feed() {
         <>
           <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
             {posts.map((post) => (
-              <PostCard key={post.id} post={post} onChanged={() => void reload()} />
+              <PostCard key={post.id} post={post} onChanged={() => void reload()} viewer={user} />
             ))}
           </div>
           {hasMore && (

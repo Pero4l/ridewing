@@ -28,7 +28,7 @@ const searchQuery = z
 // not 400 on a tab switch, then `userPosts` falls back to 'posts' for tabs it
 // does not implement.
 const listQuery = z
-  .object({ tab: z.enum(['posts', 'tagged', 'shared']).optional() })
+  .object({ tab: z.enum(['posts', 'tagged', 'shared', 'reposts']).optional() })
   .merge(pagination.strict())
   .strict();
 

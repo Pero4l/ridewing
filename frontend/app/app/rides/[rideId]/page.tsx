@@ -52,14 +52,20 @@ export default function RideDetailPage({ params }: { params: Promise<{ rideId: s
 
   const myId = user?.id;
 
-  const loadRide = useCallback(async () => {
+  // Returns the fresh ride so callers that need post-mutation state (like the
+  // voice mode after joining) do not have to read it back out of a stale
+  // closure — setState is async, so `ride.voiceMode` inside the caller would
+  // still be the pre-fetch value.
+  const loadRide = useCallback(async (): Promise<Ride | null> => {
     try {
       const res = await api.get<{ ride: Ride; relation: RideRelation }>(`/api/rides/${rideId}`);
       setRide(res.ride);
       setRelation(res.relation);
       setLoadError(null);
+      return res.ride;
     } catch (error) {
       setLoadError(error instanceof ApiError ? error.message : "Could not load ride");
+      return null;
     }
   }, [rideId]);
 
@@ -112,8 +118,8 @@ export default function RideDetailPage({ params }: { params: Promise<{ rideId: s
       }
     });
     const offEnded = _onSocketEvent<{ id: string; status: string; reason?: "inactive" }>("ride:ended", (payload) => {
-      setRide((current) => (current ? { ...current, status: "ended", endedAt: new Date().toISOString() } : current));
       if (payload.id !== rideId) return;
+      setRide((current) => (current ? { ...current, status: "ended", endedAt: new Date().toISOString() } : current));
       exitVoice(false);
       setVoiceMessage(payload.reason === "inactive" ? "Ride ended after being idle too long" : "Ride ended by the creator");
     });
@@ -139,7 +145,20 @@ export default function RideDetailPage({ params }: { params: Promise<{ rideId: s
     setRoomPeers({});
   }
 
-  async function enterVoice() {
+  /**
+   * Opens the voice room.
+   *
+   * The `VoiceRoom` constructor asks for the microphone, and it is built
+   * synchronously here — before the first `await` — so the request is still
+   * inside the tap that opened voice. That matters on iOS, which rejects
+   * getUserMedia once the user gesture has been spent: the previous version
+   * awaited the join and the ride reload first, so joining a ride from a phone
+   * always lost the gesture and the mic silently failed.
+   *
+   * `joinRide` is passed when the rider is not on the ride yet, so joining and
+   * entering voice is one tap without moving the mic request off the gesture.
+   */
+  async function enterVoice({ joinRide = false } = {}) {
     if (activeRef.current) return;
     activeRef.current = true;
     setVoiceMessage(null);
@@ -161,6 +180,26 @@ export default function RideDetailPage({ params }: { params: Promise<{ rideId: s
       ride?.voiceMode ?? "ptt",
     );
     roomRef.current = room;
+
+    if (joinRide) {
+      setBusy(true);
+      try {
+        await api.post(`/api/rides/${rideId}/join`);
+        const fresh = await loadRide();
+        if (fresh) {
+          room.reportVoiceMode(fresh.voiceMode);
+          setVoiceMode(fresh.voiceMode);
+        }
+      } catch (error) {
+        activeRef.current = false;
+        room.dispose();
+        roomRef.current = null;
+        toast.error(error instanceof ApiError ? error.message : "Could not join ride");
+        return;
+      } finally {
+        setBusy(false);
+      }
+    }
 
     const joined = await emitWithAck<{ rideId: string }, JoinRideAck>("ride:join", { rideId: rideId }).catch(
       (): JoinRideAck => ({ ok: false, error: { message: "Could not connect to voice server" } }),
@@ -187,29 +226,21 @@ export default function RideDetailPage({ params }: { params: Promise<{ rideId: s
     await room.initialize();
   }
 
-  async function joinRideAndEnterVoice() {
-    setBusy(true);
-    try {
-      await api.post(`/api/rides/${rideId}/join`);
-      await loadRide();
-      setVoiceMode(ride?.voiceMode ?? "ptt");
-      await enterVoice();
-    } catch (error) {
-      toast.error(error instanceof ApiError ? error.message : "Could not join ride");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function leaveRide() {
+  /**
+   * Ends the rider's own participation. The host can end the ride for everyone
+   * (see `endRide`); anyone on the ride can always end their own involvement,
+   * which is what the "Leave ride" button used to do but without saying so.
+   */
+  async function endMyRide() {
+    if (!confirm("End your ride? You will drop off this ride for everyone.")) return;
     setBusy(true);
     try {
       exitVoice();
       await api.post(`/api/rides/${rideId}/leave`);
-      toast.success("You left the ride");
+      toast.success("You ended your ride");
       await loadRide();
     } catch (error) {
-      toast.error(error instanceof ApiError ? error.message : "Could not leave ride");
+      toast.error(error instanceof ApiError ? error.message : "Could not end your ride");
     } finally {
       setBusy(false);
     }
@@ -394,16 +425,22 @@ export default function RideDetailPage({ params }: { params: Promise<{ rideId: s
           <div className="mt-5 flex gap-2">
             {isParticipant ? (
               <>
-                <Button className="flex-1" onClick={enterVoice} loading={busy}>
+                <Button className="flex-1" onClick={() => void enterVoice()} loading={busy}>
                   <MicIcon size={16} />
                   Enter voice
                 </Button>
-                <Button className="flex-1" variant="secondary" onClick={leaveRide} loading={busy}>
-                  Leave ride
+                <Button
+                  className="flex-1"
+                  variant="secondary"
+                  onClick={() => void endMyRide()}
+                  loading={busy}
+                  disabled={isCreator}
+                >
+                  End my ride
                 </Button>
               </>
             ) : (
-              <Button full className="flex-1" onClick={joinRideAndEnterVoice} loading={busy}>
+              <Button full className="flex-1" onClick={() => void enterVoice({ joinRide: true })} loading={busy}>
                 <MicIcon size={16} />
                 Join ride &amp; voice
               </Button>
@@ -420,8 +457,8 @@ export default function RideDetailPage({ params }: { params: Promise<{ rideId: s
             <Button size="sm" variant={voiceMode === "open" ? "primary" : "secondary"} disabled={busy || voiceActive} onClick={() => changeVoiceMode("open")}>
               Open mic
             </Button>
-            <Button size="sm" variant="danger" className="ml-auto" onClick={endRide} disabled={busy}>
-              End ride
+            <Button size="sm" variant="danger" className="ml-auto" onClick={() => void endRide()} disabled={busy}>
+              End ride for everyone
             </Button>
           </div>
         )}

@@ -8,16 +8,25 @@ import { useSession } from "@/lib/auth";
 import { useToast } from "@/components/toast";
 import { FollowButton } from "@/components/follow-button";
 import { Avatar } from "@/components/avatar";
-import { Badge, EmptyState, PageHeader, SectionTitle } from "@/components/ui";
+import { Badge, Button, EmptyState, PageHeader, SectionTitle } from "@/components/ui";
 import { InlineSpinner } from "@/components/spinner";
 import { BackIcon, MessagesIcon } from "@/components/icons";
 import { VerifiedBadge } from "@/components/verified-badge";
 import { MediaGrid } from "@/components/media-grid";
+import { PostCard } from "@/components/post-card";
+import { RepostIcon } from "@/components/icons";
 import { bikeLabel, fullDateOnly } from "@/lib/format";
 import type { Page, Post, Profile, PublicUser } from "@/lib/types";
 
 type CountTab = "followers" | "following" | null;
-type GalleryTab = "posts" | "tagged" | "shared";
+type GalleryTab = "posts" | "tagged" | "shared" | "reposts";
+
+const TAB_LABELS: Record<GalleryTab, string> = {
+  posts: "Posts",
+  reposts: "Reposts",
+  shared: "Shared",
+  tagged: "Tagged",
+};
 
 export default function ProfilePage({ params }: { params: Promise<{ username: string }> }) {
   const { username } = use(params);
@@ -196,7 +205,7 @@ export default function ProfilePage({ params }: { params: Promise<{ username: st
         {profile.bio && <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-zinc-600 dark:text-zinc-300">{profile.bio}</p>}
 
         <div className="mt-4 flex items-center gap-2">
-          {!isSelf ? (
+          {!isSelf && viewer ? (
             <>
               <FollowButton user={profile} onChanged={() => void loadProfile()} />
               <button
@@ -209,6 +218,13 @@ export default function ProfilePage({ params }: { params: Promise<{ username: st
                 <MessagesIcon size={18} />
               </button>
             </>
+          ) : !isSelf ? (
+            // A guest can read a profile but not follow or message it. Both
+            // buttons would otherwise 401, so they are replaced with the one
+            // action that is actually available to them.
+            <Link href={`/register?next=${encodeURIComponent(`/app/profile/${username}`)}`} className="flex-1">
+              <Button full>Join to follow {profile.displayName.split(/\s+/)[0]}</Button>
+            </Link>
           ) : (
             <Link
               href="/app/settings"
@@ -261,7 +277,7 @@ export default function ProfilePage({ params }: { params: Promise<{ username: st
       {!countTab && (
         <div className="mt-4 border-t border-zinc-100 dark:border-zinc-800">
           <div className="flex items-center justify-around border-b border-zinc-100 dark:border-zinc-800">
-            {(["posts", "tagged", "shared"] as GalleryTab[]).map((tab) => (
+            {(["posts", "reposts", "shared", "tagged"] as GalleryTab[]).map((tab) => (
               <button
                 key={tab}
                 type="button"
@@ -283,6 +299,23 @@ export default function ProfilePage({ params }: { params: Promise<{ username: st
             </div>
           ) : tabError ? (
             <p className="px-4 py-8 text-center text-sm text-zinc-500 dark:text-zinc-400">{tabError}</p>
+          ) : galleryTab === "reposts" ? (
+            // Reposts are shown as full cards rather than the media grid: the
+            // point of the tab is the attribution line, and a bare grid cannot
+            // say who reposted what or who wrote it in the first place.
+            posts.length === 0 ? (
+              <EmptyState
+                icon={<RepostIcon size={32} />}
+                title="No reposts yet"
+                description={isSelf ? "Reposts land here with the original author credited." : "This rider has not reposted anything yet."}
+              />
+            ) : (
+              <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                {posts.map((post) => (
+                  <PostCard key={post.id} post={post} viewer={viewer} onChanged={() => void loadPosts("reposts")} />
+                ))}
+              </div>
+            )
           ) : visibleMedia.length === 0 ? (
             <EmptyState
               icon={<span className="text-lg font-bold">📷</span>}
@@ -308,9 +341,9 @@ export default function ProfilePage({ params }: { params: Promise<{ username: st
               <MediaGrid media={visibleMedia} preview={false} />
             </div>
           )}
-          {!postsLoading && (galleryTab === "posts" || galleryTab === "shared" || galleryTab === "tagged") && (
+          {!postsLoading && galleryTab !== "reposts" && (
             <div className="px-4 pb-6 pt-1 text-center text-xs text-zinc-400">
-              <SectionTitle>{galleryTab === "posts" ? "Posts" : galleryTab === "shared" ? "Shared" : "Tagged"} by {profile.displayName}</SectionTitle>
+              <SectionTitle>{TAB_LABELS[galleryTab]} by {profile.displayName}</SectionTitle>
             </div>
           )}
         </div>

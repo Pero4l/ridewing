@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
-import { useRouter } from "next/navigation";
+import { useState, type FormEvent, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "@/lib/auth";
 import { ApiError } from "@/lib/api";
 import { useToast } from "@/components/toast";
 import { AuthLink, AuthShell } from "@/components/auth-shell";
+import { safeRedirect } from "@/lib/redirect";
 import { Button, Field, Input, PasswordInput } from "@/components/ui";
 
 type FormState = {
@@ -22,6 +23,17 @@ type FormErrors = Partial<Record<keyof FormState, string>>;
 const USERNAME_RE = /^[a-z0-9_]+$/;
 const PASSWORD_RE = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{6,}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/** Matches the separators the API strips, so the hint and the rule agree. */
+const PHONE_SEPARATORS = /[\s()-]/g;
+
+/**
+ * Phone numbers are stored digits-only. Someone typing "0903 123 4567" or
+ * "(0903) 123-4567" should not be told their own number is invalid, so the
+ * client normalizes with the same rule the server applies.
+ */
+function normalizePhone(value: string): string {
+  return value.trim().replace(PHONE_SEPARATORS, "");
+}
 
 function validate(form: FormState): FormErrors {
   const errors: FormErrors = {};
@@ -51,7 +63,7 @@ function validate(form: FormState): FormErrors {
     errors.email = "Enter a valid email address";
   }
 
-  if (phone && !/^(\+[1-9]\d{6,18}|\d{7,15})$/.test(phone.replace(/[\s()-]/g, ""))) {
+  if (phone && !/^(\+[1-9]\d{6,18}|\d{7,15})$/.test(normalizePhone(phone))) {
     errors.phone = "Enter a valid phone number, e.g. 09031234567 or +14155550123";
   }
 
@@ -71,9 +83,23 @@ function validate(form: FormState): FormErrors {
 }
 
 export default function RegisterPage() {
+  // `useSearchParams` opts the route into client rendering, so it needs a
+  // Suspense boundary or the whole build fails static generation.
+  return (
+    <Suspense fallback={<AuthShell><div className="min-h-40" /></AuthShell>}>
+      <RegisterForm />
+    </Suspense>
+  );
+}
+
+function RegisterForm() {
   const { register } = useSession();
   const router = useRouter();
   const toast = useToast();
+  const searchParams = useSearchParams();
+  // A guest who tapped "join the conversation" on a post lands here; after
+  // signing up they should return to that post, not the feed.
+  const redirectTo = safeRedirect(searchParams.get("next"));
 
   const [form, setForm] = useState<FormState>({
     username: "",
@@ -95,6 +121,27 @@ export default function RegisterPage() {
     };
   }
 
+  /**
+   * Cleans a field once the rider leaves it, rather than rejecting the value
+   * on submit. Accidental leading/trailing spaces and pasted "(0903) 123-4567"
+   * are the common case here, and a visible correction is far kinder than an
+   * error about a space the rider cannot see.
+   */
+  function normalizeOnBlur(field: "username" | "displayName" | "email" | "phone") {
+    return () => {
+      setForm((current) => {
+        const raw = current[field];
+        const next =
+          field === "username"
+            ? raw.trim().toLowerCase()
+            : field === "phone"
+              ? normalizePhone(raw)
+              : raw.trim();
+        return next === raw ? current : { ...current, [field]: next };
+      });
+    };
+  }
+
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
     setServerError(null);
@@ -108,12 +155,12 @@ export default function RegisterPage() {
       await register({
         username: form.username.trim().toLowerCase(),
         displayName: form.displayName.trim(),
-        email: form.email.trim() || undefined,
-        phone: form.phone.trim() || undefined,
+        email: form.email.trim().toLowerCase() || undefined,
+        phone: normalizePhone(form.phone) || undefined,
         password: form.password,
       });
       toast.success("Welcome to RideWing! Your account is ready.");
-      router.replace("/app");
+      router.replace(redirectTo);
     } catch (err) {
       if (err instanceof ApiError && err.details?.length) {
         const fieldMap: Record<string, keyof FormState> = {
@@ -154,6 +201,7 @@ export default function RegisterPage() {
           <Input
             value={form.displayName}
             onChange={set("displayName")}
+            onBlur={normalizeOnBlur("displayName")}
             placeholder="Alex Rider"
             maxLength={60}
             invalid={Boolean(errors.displayName)}
@@ -164,8 +212,12 @@ export default function RegisterPage() {
           <Input
             autoFocus
             autoComplete="username"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
             value={form.username}
             onChange={set("username")}
+            onBlur={normalizeOnBlur("username")}
             placeholder="alexrider"
             maxLength={30}
             invalid={Boolean(errors.username)}
@@ -176,19 +228,28 @@ export default function RegisterPage() {
           <Field label="Email" error={errors.email}>
             <Input
               type="email"
+              inputMode="email"
               autoComplete="email"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
               value={form.email}
               onChange={set("email")}
+              onBlur={normalizeOnBlur("email")}
               placeholder="you@example.com"
               invalid={Boolean(errors.email)}
             />
           </Field>
-          <Field label="Phone (optional)" error={errors.phone}>
+          <Field label="Phone (optional)" hint="Digits only" error={errors.phone}>
             <Input
               type="tel"
+              // A numeric keypad beats a full keyboard here, and `+` is kept
+              // reachable because international numbers are a first-class case.
+              inputMode="tel"
               autoComplete="tel"
               value={form.phone}
               onChange={set("phone")}
+              onBlur={normalizeOnBlur("phone")}
               placeholder="09031234567"
               invalid={Boolean(errors.phone)}
             />

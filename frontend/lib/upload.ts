@@ -8,6 +8,8 @@ export type UploadedMedia = {
   height: number | null;
   format: string | null;
   type: "image" | "video";
+  /** Still frame for videos, so the composer preview is not a black box. */
+  posterUrl?: string;
 };
 
 export const MAX_IMAGE_BYTES = 10 * 1024 * 1024;

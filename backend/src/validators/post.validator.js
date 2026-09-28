@@ -9,6 +9,9 @@ const mediaItem = z
     type: z.enum(['image', 'video']),
     width: z.number().int().positive().max(10000).optional(),
     height: z.number().int().positive().max(10000).optional(),
+    // Server-derived still frame. Accepted so an edit round-trips the media it
+    // was handed instead of being rejected for carrying an extra field.
+    posterUrl: z.string().min(1).max(1000).optional(),
   })
   .strict();
 

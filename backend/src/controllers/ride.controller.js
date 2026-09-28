@@ -3,6 +3,7 @@
 const asyncHandler = require('../utils/asyncHandler');
 const rideService = require('../services/ride.service');
 const turnService = require('../services/turn.service');
+const notificationService = require('../services/notification.service');
 const { emitToRide, emitToUser } = require('../sockets/emit');
 
 const create = asyncHandler(async (req, res) => {
@@ -73,6 +74,27 @@ const setSignal = asyncHandler(async (req, res) => {
   };
   emitToRide(req.params.rideId, 'ride:signal', payload);
   participantIds.forEach((participantId) => emitToUser(participantId, 'ride:signal', payload));
+
+  // A raised signal also has to reach riders who have the app closed. Clearing
+  // one is not worth a notification — it is a resolution, not an event — and
+  // telling the sender about their own signal is just noise.
+  if (result.active) {
+    for (const participantId of participantIds) {
+      if (participantId === req.user.id) continue;
+      // Sequential, not a bulk insert: notificationService also fires Web Push
+      // and in-app socket delivery per row, and the list is the size of one
+      // ride's roster, not the size of the site.
+      // eslint-disable-next-line no-await-in-loop
+      await notificationService.create({
+        userId: participantId,
+        actorId: req.user.id,
+        type: 'ride_signal',
+        entityType: 'ride',
+        entityId: req.params.rideId,
+        data: { rideId: req.params.rideId, kind: result.kind },
+      });
+    }
+  }
 
   res.json(result);
 });

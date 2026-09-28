@@ -16,6 +16,7 @@ const ApiError = require('../utils/ApiError');
 const { normalizeLimit, decodeCursor, buildPage } = require('../utils/pagination');
 const conversationService = require('./conversation.service');
 const communityService = require('./community.service');
+const emailService = require('./email.service');
 const notificationService = require('./notification.service');
 
 /** Trims and length-checks content before it reaches the database. */
@@ -56,6 +57,44 @@ async function notifyDirectRecipient(conversationId, senderId, message) {
     entityId: conversationId,
     data: { conversationId, messageId: message.id, content: message.content },
   });
+
+  await emailSenderCopy(conversationId, senderId, recipientId, message);
+}
+
+/**
+ * Confirms delivery to the rider who *sent* the message, so a message sent from
+ * a phone that immediately locks is still traceable from their inbox. Best
+ * effort: no email configured, or no address on file, simply means no mail.
+ */
+async function emailSenderCopy(conversationId, senderId, recipientId, message) {
+  if (!env.email.enabled) return;
+
+  const [sender, recipient] = await Promise.all([
+    User.findByPk(senderId, { attributes: ['id', 'email', 'displayName', 'username'] }),
+    User.findByPk(recipientId, { attributes: ['id', 'username'] }),
+  ]);
+  if (!sender?.email) return;
+
+  const frontend = env.frontendUrl.replace(/\/+$/, '');
+  const toName = recipient?.username ? `@${recipient.username}` : 'your rider';
+  const subject = `You sent a message to ${toName}`;
+  const snippet = String(message.content ?? '').trim();
+
+  try {
+    await emailService.sendTransactional({
+      to: sender.email,
+      subject,
+      text: `${subject}\n\n"${snippet.slice(0, 160)}"\n\n${frontend}/app/messages/${conversationId}`,
+      html: emailService.renderHtml({
+        title: subject,
+        preview: 'A copy of your message, in case you need it later.',
+        paragraphs: [`"${snippet.slice(0, 300)}"`],
+        button: { href: `${frontend}/app/messages/${conversationId}`, label: 'Open conversation' },
+      }),
+    });
+  } catch (error) {
+    logger.warn({ error: error.message, conversationId }, 'sender email copy failed');
+  }
 }
 
 /**
@@ -92,15 +131,13 @@ async function send(conversationId, senderId, { content, clientNonce = null }) {
 
     message.sender = await User.findByPk(senderId);
 
-    // A duplicate (nonce replay) already delivered the first time; never nudge
-    // the recipient twice for the same message.
-    if (!duplicate) {
-      queueMicrotask(() => {
-        notifyDirectRecipient(conversationId, senderId, message).catch((error) =>
-          logger.warn({ error: error.message, conversationId }, 'message notification failed'),
-        );
-      });
-    }
+    // Only reached on a genuinely fresh row — a nonce replay returns from the
+    // catch below, so the recipient is never nudged twice for the same message.
+    queueMicrotask(() => {
+      notifyDirectRecipient(conversationId, senderId, message).catch((error) =>
+        logger.warn({ error: error.message, conversationId }, 'message notification failed'),
+      );
+    });
 
     return { message, duplicate: false };
   } catch (error) {

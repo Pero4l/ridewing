@@ -9,9 +9,10 @@ import { useToast } from "@/components/toast";
 import { Avatar } from "@/components/avatar";
 import { Button, Card, Field, Input, PageHeader } from "@/components/ui";
 import { ImageUploadField } from "@/components/media-upload";
+import { SpinnerIcon } from "@/components/spinner";
 import { BackIcon, BellIcon, ChevronRightIcon, MonitorIcon, MoonIcon, SunIcon, VerifiedBadgeIcon } from "@/components/icons";
 import { useTheme } from "@/components/theme-provider";
-import { pushEnabled, subscribeToPush, unsubscribeFromPush } from "@/lib/push";
+import { pushSupport, subscribeToPush, unsubscribeFromPush, currentSubscription } from "@/lib/push";
 import type { Theme } from "@/lib/theme";
 
 export default function SettingsPage() {
@@ -37,7 +38,7 @@ export default function SettingsPage() {
   const [verifying, setVerifying] = useState(false);
   const { theme, setTheme } = useTheme();
 
-  const [pushSupported] = useState(() => pushEnabled());
+  const [pushSupportState, setPushSupportState] = useState(() => pushSupport());
   const [pushOn, setPushOn] = useState(false);
   const [soundAlerts, setSoundAlerts] = useState(() => localStorage.getItem("ridewing:sounds") !== "off");
   const [appPrefsSaving, setAppPrefsSaving] = useState(false);
@@ -49,15 +50,19 @@ export default function SettingsPage() {
   // re-close after a save, so the page never auto-opens onto personal info.
   const [open, setOpen] = useState<"profile" | "appearance" | "password" | "preferences" | null>(null);
 
+  // Hydrate the toggle from the device's real subscription state. The previous
+  // version awaited `navigator.serviceWorker.ready`, which never resolves on a
+  // device that has never subscribed, so the switch silently stayed off.
+  //
+  // `pushSupport()` is seeded in the state initializer rather than assigned in
+  // the effect: it is a pure read of the environment, so there is no reason to
+  // render a wrong answer first and correct it on the next pass.
   useEffect(() => {
-
-    if (!pushEnabled()) return;
+    if (!pushSupport().supported) return;
     let cancelled = false;
-    navigator.serviceWorker
-      .ready
-      .then((registration) => registration.pushManager.getSubscription())
+    currentSubscription()
       .then((subscription) => {
-        if (!cancelled && subscription) setPushOn(true);
+        if (!cancelled) setPushOn(Boolean(subscription));
       })
       .catch(() => {});
     return () => {
@@ -143,11 +148,19 @@ export default function SettingsPage() {
   }
 
   async function togglePush(next: boolean) {
+    if (appPrefsSaving) return;
     setAppPrefsSaving(true);
     try {
-      const ok = next ? await subscribeToPush() : await unsubscribeFromPush();
-      setPushOn(ok);
-      if (next && !ok) toast.error("Could not enable push notifications on this device");
+      const result = next ? await subscribeToPush() : await unsubscribeFromPush();
+      if (result.ok) {
+        setPushOn(next);
+      } else {
+        setPushOn(false);
+        toast.error(result.message);
+        // The answer may have changed the diagnosis (e.g. a blocked permission
+        // on an otherwise capable device), so re-read it.
+        setPushSupportState(pushSupport());
+      }
     } finally {
       setAppPrefsSaving(false);
     }
@@ -336,10 +349,15 @@ export default function SettingsPage() {
               icon={<BellIcon size={18} />}
               title="Push notifications"
               description="Ride signals, messages and mentions even when the app is closed."
-              disabled={!pushSupported || appPrefsSaving}
-              value={pushSupported && pushOn}
+              busy={appPrefsSaving}
+              value={pushSupportState.supported && pushOn}
               onChange={(next) => void togglePush(next)}
             />
+            {!pushSupportState.supported && (
+              <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+                {pushSupportState.message}
+              </p>
+            )}
             <ToggleRow
               icon={<BellIcon size={18} />}
               title="Ride alert sounds"
@@ -377,16 +395,21 @@ function Section({ open, onToggle, title, hint, children }: { open: boolean; onT
   );
 }
 
-function ToggleRow({ icon, title, description, value, disabled = false, onChange }: {
+function ToggleRow({ icon, title, description, value, disabled = false, busy = false, onChange }: {
   icon: ReactNode;
   title: string;
   description: string;
   value: boolean;
   disabled?: boolean;
+  busy?: boolean;
   onChange: (next: boolean) => void;
 }) {
+  // The switch stays clickable even when notifications are unavailable: the tap
+  // is what surfaces *why* (no VAPID key, insecure context, blocked permission)
+  // instead of leaving a dead, unexplained control on the screen.
+  const inert = disabled || busy;
   return (
-    <div className={`flex items-center gap-3 ${disabled ? "opacity-50" : ""}`}>
+    <div className={`flex items-center gap-3 ${inert ? "opacity-60" : ""}`}>
       <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">{icon}</span>
       <span className="min-w-0 flex-1">
         <span className="block text-sm font-medium text-zinc-900 dark:text-zinc-100">{title}</span>
@@ -396,12 +419,18 @@ function ToggleRow({ icon, title, description, value, disabled = false, onChange
         type="button"
         role="switch"
         aria-checked={value}
+        aria-busy={busy}
         disabled={disabled}
         onClick={() => onChange(!value)}
         className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${
           value ? "bg-emerald-500" : "bg-zinc-300 dark:bg-zinc-700"
         } ${disabled ? "cursor-not-allowed" : ""}`}
       >
+        {busy ? (
+          <span className="absolute inset-0 grid place-items-center">
+            <SpinnerIcon size={14} className="mx-auto animate-spin text-white mix-blend-normal" />
+          </span>
+        ) : null}
         <span className={`absolute top-0.5 left-0.5 h-6 w-6 rounded-full bg-white shadow transition-transform ${value ? "translate-x-5" : ""}`} />
       </button>
     </div>

@@ -183,6 +183,11 @@ export type PostMedia = {
   type: "image" | "video";
   width?: number;
   height?: number;
+  /**
+   * Still frame shown before a video starts. Filled in by the API for videos it
+   * can derive one for; absent for third-party or image media.
+   */
+  posterUrl?: string;
 };
 
 export type Post = {
@@ -192,7 +197,15 @@ export type Post = {
   likeCount: number;
   commentCount: number;
   shareCount: number;
+  repostCount: number;
   viewerLiked: boolean;
+  /** Whether the signed-in viewer has reposted this post to their own profile. */
+  viewerReposted: boolean;
+  /**
+   * Set when the post appears in someone's reposts tab, so the card can name who
+   * reposted it while still crediting the original author.
+   */
+  repostedBy: PublicUser | null;
   editedAt: string | null;
   mediaEditableUntil: string;
   createdAt: string;

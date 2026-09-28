@@ -87,15 +87,41 @@ async function uploadVideo(buffer) {
   return normalize(result, 'video');
 }
 
+/**
+ * Asks Cloudinary for a still frame of the video so the feed has something to
+ * show before playback starts. `start_offset: 'auto'` makes Cloudinary pick the
+ * most "interesting" frame instead of a black first frame; the width keeps the
+ * poster cheap — it is never displayed larger than a feed tile.
+ */
+function posterUrlFor(result) {
+  try {
+    return cloudinary.url(result.public_id, {
+      resource_type: result.resource_type || 'video',
+      format: 'jpg',
+      secure: true,
+      transformation: [{ width: 640, crop: 'limit', start_offset: 'auto', quality: 'auto' }],
+    });
+  } catch (error) {
+    // A missing poster is cosmetic; never fail an upload over it.
+    logger.warn({ err: error, publicId: result.public_id }, 'could not build video poster url');
+    return undefined;
+  }
+}
+
 function normalize(result, type) {
   logger.debug({ publicId: result.public_id, type }, 'uploaded media');
-  return {
+  const media = {
     url: result.secure_url,
     width: result.width ?? null,
     height: result.height ?? null,
     format: result.format ?? null,
     type,
   };
+  if (type === 'video') {
+    const posterUrl = posterUrlFor(result);
+    if (posterUrl) media.posterUrl = posterUrl;
+  }
+  return media;
 }
 
 module.exports = { uploadImage, uploadVideo, assertEnabled };

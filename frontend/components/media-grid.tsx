@@ -92,11 +92,12 @@ function MediaThumb({ item }: { item: PostMedia }) {
     return (
       <video
         src={item.url}
+        poster={item.posterUrl}
         muted
         loop
         playsInline
-        preload="metadata"
-        className="h-full w-full object-cover"
+        preload="none"
+        className="h-full w-full bg-zinc-200 object-cover dark:bg-zinc-800"
         onMouseEnter={(event) => void event.currentTarget.play()}
         onMouseLeave={(event) => {
           event.currentTarget.pause();
@@ -132,9 +133,10 @@ function ImageTile({ item }: { item: PostMedia }) {
 function VideoTile({ item, compact }: { item: PostMedia; compact: boolean }) {
   if (compact) {
     return (
-      <div className="relative aspect-square overflow-hidden rounded-lg bg-black">
+      <div className="relative aspect-square overflow-hidden rounded-lg bg-zinc-200 dark:bg-zinc-800">
         <video
           src={item.url}
+          poster={item.posterUrl}
           controls
           playsInline
           preload="metadata"
@@ -145,8 +147,8 @@ function VideoTile({ item, compact }: { item: PostMedia; compact: boolean }) {
     );
   }
   return (
-    <div className="relative overflow-hidden rounded-lg bg-black">
-      <video src={item.url} controls playsInline preload="metadata" className="max-h-96 w-full" />
+    <div className="relative overflow-hidden rounded-lg bg-zinc-200 dark:bg-zinc-800">
+      <video src={item.url} poster={item.posterUrl} controls playsInline preload="metadata" className="max-h-96 w-full" />
       <VideoBadge />
     </div>
   );

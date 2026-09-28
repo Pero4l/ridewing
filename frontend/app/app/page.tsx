@@ -15,12 +15,30 @@ import { InlineSpinner } from "@/components/spinner";
 import { CommunitiesIcon, SearchIcon, RidesIcon } from "@/components/icons";
 
 export default function HomePage() {
-  const { user } = useSession();
+  const { status, user } = useSession();
 
-  const myCommunities = useApi<{ communities: Community[] }>(() => api.get("/api/communities/mine"), []);
+  // Both hooks run unconditionally: a conditional `useApi` would be a rules-of-
+  // hooks violation, and `/api/communities/mine` 401s for a guest anyway. The
+  // guest branch below simply never reads the result.
+  const myCommunities = useApi<{ communities: Community[] }>(
+    () => api.get("/api/communities/mine"),
+    [status === "authed"],
+  );
   const rides = useApi<{ rides: Ride[] }>(() => api.get("/api/rides"), []);
 
-  if (!user) return null;
+  if (status === "loading") {
+    return (
+      <div className="grid place-items-center py-20">
+        <InlineSpinner />
+      </div>
+    );
+  }
+
+  // Signed-out visitors get the public feed and nothing else. The personal
+  // header, running-rides list and composer are all account-scoped, so they are
+  // left out rather than rendered as empty holes.
+  if (!user) return <GuestFeed />;
+
   const firstName = user.displayName.split(/\s+/)[0];
   const hour = new Date().getHours();
   const greeting = hour < 5 ? "Up late" : hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
@@ -99,6 +117,40 @@ export default function HomePage() {
           }
         />
       )}
+    </div>
+  );
+}
+
+/**
+ * What a signed-out visitor sees on `/app`: the real feed, and nothing that needs
+ * an account. There is no fake data and no teaser wall — the feed is public on
+ * the server, so the same posts a rider sees load here too.
+ */
+function GuestFeed() {
+  return (
+    <div>
+      <section className="px-4 pt-6">
+        <h1 className="text-xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
+          RideWing — the road, in real time
+        </h1>
+        <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+          Live ride reports from riders on the road. Reading is open to everyone.
+        </p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Link href="/register">
+            <Button size="sm">Create a free account</Button>
+          </Link>
+          <Link href="/login">
+            <Button size="sm" variant="secondary">
+              Sign in
+            </Button>
+          </Link>
+        </div>
+      </section>
+
+      <div className="mt-2">
+        <Feed />
+      </div>
     </div>
   );
 }

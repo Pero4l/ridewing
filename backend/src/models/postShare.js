@@ -7,10 +7,13 @@ module.exports = (sequelize, DataTypes) => {
       id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
       postId: { type: DataTypes.UUID, allowNull: false },
       userId: { type: DataTypes.UUID, allowNull: false },
+      // 'share' broadcasts to followers; 'repost' puts the post on the sharer's
+      // own profile. Both are idempotent per (post, user, kind).
+      kind: { type: DataTypes.STRING(16), allowNull: false, defaultValue: 'share' },
     },
     {
       tableName: 'post_shares',
-      indexes: [{ unique: true, fields: ['post_id', 'user_id'] }],
+      indexes: [{ unique: true, fields: ['post_id', 'user_id', 'kind'] }],
     },
   );
 

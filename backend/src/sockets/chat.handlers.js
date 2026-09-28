@@ -19,7 +19,7 @@ const env = require('../config/env');
 const TokenBucket = require('../utils/TokenBucket');
 const conversationService = require('../services/conversation.service');
 const messageService = require('../services/message.service');
-const { conversationRoom } = require('./rooms');
+const { conversationRoom, userRoom } = require('./rooms');
 const { normalize } = require('../middleware/errorHandler');
 
 const joinSchema = z.object({ conversationId: z.string().uuid() }).strict();
@@ -113,7 +113,17 @@ module.exports = function registerChatHandlers(io, socket) {
       // A duplicate means the client already sent this; acknowledge without
       // re-broadcasting so nobody sees it twice.
       if (!duplicate) {
-        io.to(conversationRoom(conversationId)).emit('message:new', message.toJSONSafe());
+        const payload = message.toJSONSafe();
+        io.to(conversationRoom(conversationId)).emit('message:new', payload);
+
+        // Members who are not seated in this thread right now (they are on the
+        // conversation list, or the thread on another page) still need their
+        // list preview and unread badge to move. Fanning out to each member's
+        // personal room makes delivery independent of who has joined which room.
+        const members = await conversationService.memberIds(conversationId);
+        for (const memberId of new Set(members)) {
+          io.to(userRoom(memberId)).emit('message:new', payload);
+        }
       }
 
       return reply({ ok: true, message: message.toJSONSafe(), duplicate });

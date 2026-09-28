@@ -18,11 +18,12 @@ import type { Me } from "./types";
 import { disconnectSocket } from "./socket";
 import { subscribeToPush, unsubscribeFromPush } from "./push";
 
-// Push priming is best-effort and never blocks the session transition. The
-// browser asks for notification permission once per origin; subsequent logins
-// reuse the stored decision and just re-arm the existing subscription.
+// Push priming is best-effort and never blocks the session transition. It only
+// re-arms a permission the rider has *already* granted — `requestPermission`
+// needs a user gesture, so prompting here would be rejected and would poison the
+// origin's permission state before they ever reach the settings toggle.
 function primePush() {
-  void subscribeToPush();
+  void subscribeToPush({ requestPermission: false });
 }
 
 type SessionState = {

@@ -12,6 +12,7 @@ module.exports = (sequelize, DataTypes) => {
       likeCount: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
       commentCount: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
       shareCount: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+      repostCount: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
       editedAt: { type: DataTypes.DATE, allowNull: true },
     },
     {

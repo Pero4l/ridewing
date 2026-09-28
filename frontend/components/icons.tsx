@@ -248,6 +248,23 @@ export const ShareIcon = (p: IconProps) => (
   </svg>
 );
 
+/** Two chasing arrows — a repost onto your own profile, distinct from sharing. */
+export const RepostIcon = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M17 2.5 20.5 6 17 9.5" />
+    <path d="M3.5 12V9a3 3 0 0 1 3-3h14" />
+    <path d="M7 21.5 3.5 18 7 14.5" />
+    <path d="M20.5 12v3a3 3 0 0 1-3 3h-14" />
+  </svg>
+);
+
+export const LinkIcon = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M10 13a4 4 0 0 0 5.7.4l3-3a4 4 0 0 0-5.7-5.7l-1.7 1.7" />
+    <path d="M14 11a4 4 0 0 0-5.7-.4l-3 3a4 4 0 0 0 5.7 5.7l1.7-1.7" />
+  </svg>
+);
+
 export const DotsHorizontalIcon = (p: IconProps) => (
   <svg {...base(p)}>
     <circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none" />

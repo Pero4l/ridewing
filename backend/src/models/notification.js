@@ -11,6 +11,11 @@ module.exports = (sequelize, DataTypes) => {
       id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
       userId: { type: DataTypes.UUID, allowNull: false },
       type: {
+        // Kept in step with the Postgres enum, which grows in migrations
+        // 01700 (post_like, post_comment, post_share), 01900 (comment_reply),
+        // 02500 (support_ticket) and 02700 (ride_signal). A type missing here is
+        // rejected by the model before it can be written, even though the
+        // column allows it.
         type: DataTypes.ENUM(
           'follow',
           'community_join_request',
@@ -19,6 +24,12 @@ module.exports = (sequelize, DataTypes) => {
           'community_role_changed',
           'ride_invite',
           'message',
+          'post_like',
+          'post_comment',
+          'post_share',
+          'comment_reply',
+          'support_ticket',
+          'ride_signal',
         ),
         allowNull: false,
       },
