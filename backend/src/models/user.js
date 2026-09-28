@@ -62,6 +62,27 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         defaultValue: 'rider',
       },
+      // Suspension is the moderation lever; `role` is the permission lever.
+      // Keeping them separate means an admin can be demoted to a plain rider
+      // without touching whether their account works, and an abusive account
+      // can be disabled without stripping a role it never should have had.
+      status: {
+        type: DataTypes.ENUM('active', 'suspended'),
+        allowNull: false,
+        defaultValue: 'active',
+      },
+      suspendedAt: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
+      suspensionReason: {
+        type: DataTypes.STRING(500),
+        allowNull: true,
+      },
+      suspendedBy: {
+        type: DataTypes.UUID,
+        allowNull: true,
+      },
       // Free-form bike details (make, model, year, nickname). JSONB keeps V1
       // flexible without a migration per field.
       bikeInfo: {
@@ -130,6 +151,7 @@ module.exports = (sequelize, DataTypes) => {
       profileImage: this.profileImage,
       bikeInfo: this.bikeInfo,
       role: this.role,
+      status: this.status,
       emailVerifiedAt: this.emailVerifiedAt,
       createdAt: this.createdAt,
     };
@@ -142,6 +164,9 @@ module.exports = (sequelize, DataTypes) => {
       email: this.email,
       phone: this.phone,
       lastSeenAt: this.lastSeenAt,
+      suspendedAt: this.suspendedAt,
+      suspensionReason: this.suspensionReason,
+      status: this.status,
       updatedAt: this.updatedAt,
     };
   };

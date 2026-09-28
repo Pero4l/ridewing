@@ -16,6 +16,7 @@
     "db:seed:undo": "sequelize-cli db:seed:undo:all",
     "db:reset": "sequelize-cli db:migrate:undo:all && sequelize-cli db:migrate && sequelize-cli db:seed:all",
     "migration:generate": "sequelize-cli migration:generate --name",
+    "create-admin": "node scripts/create-admin.js",
     "test": "jest --runInBand",
     "test:watch": "jest --watch --runInBand"
   },

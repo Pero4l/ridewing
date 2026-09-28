@@ -19,10 +19,17 @@ import {
   MessagesIcon,
   PlusIcon,
   RidesIcon,
+  ShieldIcon,
   SupportIcon,
 } from "@/components/icons";
 
 const CREATE_HREF = "/app/posts/new";
+
+/**
+ * An admin gets one extra destination. It is rendered only for admins rather
+ * than hidden with CSS, so the link is absent from the DOM for everyone else.
+ */
+const ADMIN_HREF = "/app/admin";
 
 const TABS = [
   { href: "/app", label: "Today", icon: HomeIcon },
@@ -49,8 +56,15 @@ const PUBLIC_PATHS: Array<string | RegExp> = [
   /^\/app\/profile\/[^/]+$/,
 ];
 
+/**
+ * Exact matches only. A string rule covers the path itself and nothing below
+ * it — "/app/posts" is a public *page*, but "/app/posts/new" is a private
+ * composer, and treating the public entry as a subtree would expose every
+ * private route underneath it. The regex rules express subtrees themselves,
+ * where that is genuinely wanted.
+ */
 function isPublicPath(pathname: string): boolean {
-  return PUBLIC_PATHS.some((rule) => (typeof rule === "string" ? pathname === rule || pathname.startsWith(`${rule}/`) : rule.test(pathname)));
+  return PUBLIC_PATHS.some((rule) => (typeof rule === "string" ? pathname === rule : rule.test(pathname)));
 }
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -133,6 +147,15 @@ function Header({ user }: { user: Me | null }) {
 
         {user ? (
           <div className="flex items-center gap-0.5">
+            {user.role === "admin" && (
+              <Link
+                href={ADMIN_HREF}
+                aria-label="Admin"
+                className="grid h-9 w-9 place-items-center rounded-xl text-zinc-500 transition-colors hover:bg-amber-50 hover:text-amber-700 dark:text-zinc-400 dark:hover:bg-amber-950/40 dark:hover:text-amber-300"
+              >
+                <ShieldIcon size={20} />
+              </Link>
+            )}
             <Link
               href="/app/rides/new"
               className="grid h-9 w-9 place-items-center rounded-xl text-zinc-500 transition-colors hover:bg-emerald-50 hover:text-emerald-700 dark:text-zinc-400 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300"

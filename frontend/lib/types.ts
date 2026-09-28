@@ -23,9 +23,24 @@ export type PrivateUser = PublicUser & {
   lastSeenAt: string | null;
   updatedAt: string;
   role: "rider" | "admin";
+  status: "active" | "suspended";
+  suspendedAt: string | null;
+  suspensionReason: string | null;
 };
 
 export type Me = PrivateUser;
+
+/** A user as the admin console sees them: private details included. */
+export type AdminUser = PrivateUser;
+
+/** The admin console's activity list — the admin's own actions, newest first. */
+export type AdminActivity = {
+  id: string;
+  action: string;
+  targetUsername: string | null;
+  createdAt: string;
+  adminUsername: string;
+};
 
 export type Profile = PublicUser & {
   followerCount: number;

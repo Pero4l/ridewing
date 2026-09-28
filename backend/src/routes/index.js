@@ -16,6 +16,7 @@ const uploadRoutes = require('./upload.routes');
 const postRoutes = require('./post.routes');
 const pushRoutes = require('./push.routes');
 const supportRoutes = require('./support.routes');
+const adminRoutes = require('./admin.routes');
 
 const router = express.Router();
 
@@ -43,5 +44,6 @@ router.use('/upload', uploadRoutes);
 router.use('/posts', postRoutes);
 router.use('/push', pushRoutes);
 router.use('/support', supportRoutes);
+router.use('/admin', adminRoutes);
 
 module.exports = router;

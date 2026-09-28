@@ -32,6 +32,14 @@ const requireAuth = asyncHandler(async (req, res, next) => {
   const user = await User.findByPk(payload.sub);
   if (!user) throw ApiError.unauthorized('Account no longer exists');
 
+  // A suspended account keeps its tokens revoked at suspension time, but an
+  // access token issued moments before that would still be cryptographically
+  // valid until it expires. Re-reading the row here closes that window: the
+  // suspension takes effect on the very next request rather than in a minute.
+  if (user.status === 'suspended') {
+    throw ApiError.forbidden('This account has been suspended');
+  }
+
   req.user = user;
   return next();
 });
