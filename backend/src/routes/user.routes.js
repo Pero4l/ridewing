@@ -15,7 +15,17 @@ const router = express.Router();
  * readable without a session, because they are the pages people share links to.
  * Everything that changes state — following, and the profile itself — still sits
  * behind `requireAuth` below.
+ * 
+ * The search route is placed BEFORE the :username param routes to avoid shadowing,
+ * but carries requireAuth inline so it remains private.
  */
+router.get(
+  '/search',
+  requireAuth,
+  validate({ query: userValidator.searchQuery }),
+  userController.search,
+);
+
 router.get(
   '/:username',
   optionalAuth,
@@ -45,8 +55,6 @@ router.get(
 );
 
 router.use(requireAuth);
-
-router.get('/search', validate({ query: userValidator.searchQuery }), userController.search);
 
 router.patch(
   '/me',

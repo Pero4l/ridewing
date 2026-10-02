@@ -55,7 +55,7 @@ const listFollowing = asyncHandler(async (req, res) => {
 });
 
 const listPosts = asyncHandler(async (req, res) => {
-  const page = await postService.userPosts(req.params.username, req.validatedQuery);
+  const page = await postService.userPosts(req.params.username, { ...req.validatedQuery, viewerId: req.user?.id });
   res.json(page);
 });
 

@@ -9,6 +9,7 @@ module.exports = (sequelize, DataTypes) => {
       userId: { type: DataTypes.UUID, allowNull: false },
       content: { type: DataTypes.TEXT, allowNull: false },
       parentId: { type: DataTypes.UUID, allowNull: true, defaultValue: null },
+      likeCount: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
     },
     {
       tableName: 'post_comments',
@@ -24,6 +25,7 @@ module.exports = (sequelize, DataTypes) => {
     PostComment.belongsTo(db.User, { foreignKey: 'userId', as: 'user' });
     PostComment.belongsTo(db.PostComment, { foreignKey: 'parentId', as: 'parent' });
     PostComment.hasMany(db.PostComment, { foreignKey: 'parentId', as: 'replies' });
+    PostComment.hasMany(db.CommentLike, { foreignKey: 'commentId', as: 'likes' });
   };
 
   return PostComment;

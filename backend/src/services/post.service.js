@@ -15,6 +15,7 @@ const {
   Post,
   PostLike,
   PostComment,
+  CommentLike,
   PostShare,
   Follow,
   User,
@@ -259,7 +260,37 @@ async function unlike(postId, userId) {
   return { liked: false };
 }
 
-async function listComments(postId, { limit, cursor } = {}) {
+async function likeComment(commentId, userId) {
+  return sequelize.transaction(async (transaction) => {
+    const comment = await PostComment.findByPk(commentId, { transaction });
+    if (!comment) throw ApiError.notFound('Comment not found');
+
+    await CommentLike.findOrCreate({ where: { commentId, userId }, defaults: { commentId, userId }, transaction });
+    await PostComment.increment('likeCount', { by: 1, where: { id: commentId }, transaction });
+
+    transaction.afterCommit(() =>
+      notificationService.create({
+        userId: comment.userId,
+        actorId: userId,
+        type: 'comment_like',
+        entityType: 'comment',
+        entityId: commentId,
+        data: { commentId },
+      }),
+    );
+    return { liked: true };
+  });
+}
+
+async function unlikeComment(commentId, userId) {
+  const removed = await CommentLike.destroy({ where: { commentId, userId } });
+  if (removed) {
+    await PostComment.decrement('likeCount', { by: 1, where: { id: commentId } });
+  }
+  return { liked: false };
+}
+
+async function listComments(postId, { limit, cursor } = {}, viewerId) {
   await loadPostOrThrow(postId);
 
   const pageSize = normalizeLimit(limit, 20);
@@ -274,12 +305,24 @@ async function listComments(postId, { limit, cursor } = {}) {
     limit: pageSize + 1,
   });
 
+  const commentIds = rows.map((row) => row.id);
+  let likedSet = new Set();
+  if (viewerId && commentIds.length) {
+    const likedRows = await CommentLike.findAll({
+      where: { commentId: { [Op.in]: commentIds }, userId: viewerId },
+      attributes: ['commentId'],
+    });
+    likedSet = new Set(likedRows.map((row) => row.commentId));
+  }
+
   const items = rows.map((row) => ({
     id: row.id,
     postId: row.postId,
     parentId: row.parentId ?? null,
     content: row.content,
     createdAt: row.createdAt.toISOString(),
+    likeCount: row.likeCount,
+    viewerLiked: likedSet.has(row.id),
     user: row.user ? row.user.toPublicJSON() : null,
   }));
 
@@ -345,6 +388,8 @@ async function addComment(postId, userId, rawContent, parentId) {
         parentId: comment.parentId ?? null,
         content: comment.content,
         createdAt: comment.createdAt.toISOString(),
+        likeCount: 0,
+        viewerLiked: false,
         user: author ? author.toPublicJSON() : null,
       },
     };
@@ -442,7 +487,7 @@ async function remove(postId, userId) {
  * A rider's profile collections: posts they wrote, posts they shared (reposts),
  * and posts that tag them (@username in the text).
  */
-async function userPosts(username, { tab = 'posts' } = {}) {
+async function userPosts(username, { tab = 'posts', viewerId } = {}) {
   const user = await User.findOne({ where: { username: String(username).toLowerCase() } });
   if (!user) throw ApiError.notFound('Rider not found');
 
@@ -489,13 +534,45 @@ async function userPosts(username, { tab = 'posts' } = {}) {
     });
   }
 
+  // Batch lookup for viewerLiked if viewerId provided
+  let likedSet = new Set();
+  if (viewerId && rows.length) {
+    const postIds = rows.map((post) => post.id);
+    const likedRows = await PostLike.findAll({
+      where: { postId: { [Op.in]: postIds }, userId: viewerId },
+      attributes: ['postId'],
+    });
+    likedSet = new Set(likedRows.map((row) => row.postId));
+  }
+
+  // Batch lookup for viewerReposted (reposts)
+  let repostedSet = new Set();
+  if (viewerId && rows.length) {
+    const postIds = rows.map((post) => post.id);
+    const repostedRows = await PostShare.findAll({
+      where: { postId: { [Op.in]: postIds }, userId: viewerId, kind: 'repost' },
+      attributes: ['postId'],
+    });
+    repostedSet = new Set(repostedRows.map((row) => row.postId));
+  }
+
+  // Batch lookup for viewerIsFollowingAuthor
+  let followingSet = new Set();
+  if (viewerId && rows.length) {
+    const authorIds = rows.map((post) => post.userId);
+    const followingRows = await Follow.findAll({
+      where: { followerId: viewerId, followingId: { [Op.in]: authorIds } },
+      attributes: ['followingId'],
+    });
+    followingSet = new Set(followingRows.map((row) => row.followingId));
+  }
+
   const items = rows.map((post) => {
     const reposter = reposters.get(post.id);
     return toJSON(post, {
-      viewerLiked: false,
-      // Every post in this tab is by definition one the viewer (or whoever owns
-      // the profile) has reposted, so the client can render the toggle as on.
-      viewerReposted: Boolean(reposter),
+      viewerLiked: likedSet.has(post.id),
+      viewerReposted: Boolean(reposter) || repostedSet.has(post.id),
+      viewerIsFollowingAuthor: followingSet.has(post.userId),
       repostedBy: reposter ? reposter.toPublicJSON() : null,
     });
   });
@@ -532,6 +609,8 @@ module.exports = {
   getPost,
   like,
   unlike,
+  likeComment,
+  unlikeComment,
   listComments,
   addComment,
   share,

@@ -159,8 +159,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   // end the session here — that decision belongs to the refresh machinery.
   useEffect(() => {
     const mark = () => markActive();
-    const events: (keyof WindowEventMap)[] = ["pointerdown", "keydown", "touchstart", "scroll"];
+    const events: (keyof WindowEventMap)[] = ["pointerdown", "keydown", "touchstart"];
     events.forEach((event) => window.addEventListener(event, mark, { passive: true }));
+
+    // Scroll events are now on the main scroll container (AppShell's main), not window.
+    const mainEl = document.querySelector("main");
+    mainEl?.addEventListener("scroll", mark, { passive: true });
 
     const onVisibility = () => {
       if (document.visibilityState !== "visible") return;
@@ -177,6 +181,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
     return () => {
       events.forEach((event) => window.removeEventListener(event, mark));
+      mainEl?.removeEventListener("scroll", mark);
       document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [logout]);

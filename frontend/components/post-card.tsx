@@ -475,6 +475,34 @@ function CommentRow({
   onReply: (comment: PostCommentItem) => void;
   isReply?: boolean;
 }) {
+  const { user: me } = useSession();
+  const toast = useToast();
+  const [liking, setLiking] = useState(false);
+  const liked = comment.viewerLiked;
+  const likeCount = comment.likeCount;
+
+  async function toggleCommentLike() {
+    if (liking || !me) return;
+    if (!me) {
+      toast.error("Create a free account to like comments");
+      return;
+    }
+    setLiking(true);
+    try {
+      if (liked) {
+        await api.delete(`/api/posts/${comment.postId}/comments/${comment.id}/like`);
+      } else {
+        await api.post(`/api/posts/${comment.postId}/comments/${comment.id}/like`);
+      }
+      // Update local state optimistically
+      // Note: parent CommentThread will need to refresh or we update via onChanged
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : "Could not update like");
+    } finally {
+      setLiking(false);
+    }
+  }
+
   return (
     <div className="space-y-2.5">
       <div className={`flex items-start gap-2.5 ${isReply ? "pl-2 sm:pl-6" : ""}`}>
@@ -492,13 +520,26 @@ function CommentRow({
             </p>
             <p className="mt-0.5 whitespace-pre-wrap break-words text-sm text-zinc-700 dark:text-zinc-300">{comment.content}</p>
           </div>
-          <button
-            type="button"
-            onClick={() => onReply(comment)}
-            className="ml-2 mt-0.5 text-[11px] font-semibold text-zinc-400 transition-colors hover:text-emerald-700 dark:hover:text-emerald-400"
-          >
-            Reply
-          </button>
+          <div className="flex items-center gap-2 mt-0.5">
+            <button
+              type="button"
+              onClick={() => onReply(comment)}
+              className="text-[11px] font-semibold text-zinc-400 transition-colors hover:text-emerald-700 dark:hover:text-emerald-400"
+            >
+              Reply
+            </button>
+            <button
+              type="button"
+              onClick={() => void toggleCommentLike()}
+              disabled={liking || !me}
+              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium transition-colors hover:bg-zinc-100 disabled:opacity-50 dark:hover:bg-zinc-800 ${
+                liked ? "text-red-500 dark:text-red-400" : "text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300"
+              }`}
+            >
+              {liking ? <SpinnerIcon size={10} className="animate-spin" /> : <HeartIcon size={11} className={liked ? "fill-current" : ""} />}
+              {likeCount > 0 && likeCount}
+            </button>
+          </div>
         </div>
       </div>
 

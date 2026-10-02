@@ -8,10 +8,11 @@ const usernameParam = z.object({ username }).strict();
 /**
  * Profile updates. `.strict()` matters here: it stops a client from sending
  * `passwordHash` or `id` and having it reach a model update.
+ * Username changes are allowed but rate-limited by the service layer (7-day cooldown).
  */
 const updateProfile = z
   .object({
-    displayName: displayName.optional(),
+    username: username.optional(),
     bio: z.string().trim().max(500).nullable().optional(),
     profileImage: z.string().trim().url('Profile image must be a valid URL').max(500).nullable().optional(),
     bikeInfo: bikeInfo.optional(),

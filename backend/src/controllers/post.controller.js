@@ -35,8 +35,18 @@ const unlike = asyncHandler(async (req, res) => {
   res.json(result);
 });
 
+const likeComment = asyncHandler(async (req, res) => {
+  const result = await postService.likeComment(req.params.commentId, req.user.id);
+  res.json(result);
+});
+
+const unlikeComment = asyncHandler(async (req, res) => {
+  const result = await postService.unlikeComment(req.params.commentId, req.user.id);
+  res.json(result);
+});
+
 const listComments = asyncHandler(async (req, res) => {
-  const page = await postService.listComments(req.params.id, req.validatedQuery);
+  const page = await postService.listComments(req.params.id, req.validatedQuery, req.user?.id);
   res.json(page);
 });
 
@@ -72,6 +82,8 @@ module.exports = {
   getDetail,
   like,
   unlike,
+  likeComment,
+  unlikeComment,
   listComments,
   addComment,
   share,

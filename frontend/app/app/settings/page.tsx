@@ -20,7 +20,7 @@ export default function SettingsPage() {
   const toast = useToast();
   const { user, refreshUser, logout } = useSession();
 
-  const [displayName, setDisplayName] = useState(user?.displayName ?? "");
+  const [username, setUsername] = useState(user?.username ?? "");
   const [bio, setBio] = useState(user?.bio ?? "");
   const [profileImage, setProfileImage] = useState(user?.profileImage ?? "");
   const [make, setMake] = useState(user?.bikeInfo?.make ?? "");
@@ -29,6 +29,7 @@ export default function SettingsPage() {
   const [engineCc, setEngineCc] = useState(user?.bikeInfo?.engineCc ? String(user.bikeInfo.engineCc) : "");
 
   const [saving, setSaving] = useState(false);
+  const [usernameError, setUsernameError] = useState<string | null>(null);
 
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -43,8 +44,18 @@ export default function SettingsPage() {
   const [soundAlerts, setSoundAlerts] = useState(() => localStorage.getItem("ridewing:sounds") !== "off");
   const [appPrefsSaving, setAppPrefsSaving] = useState(false);
 
+  // Track current time for username cooldown display (updates every minute)
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(id);
+  }, []);
+
   const emailVerified = Boolean(user?.emailVerifiedAt);
   const hasEmail = Boolean(user?.email);
+  const usernameChangedAt = user?.usernameChangedAt ? new Date(user.usernameChangedAt) : null;
+  const canChangeUsername = !usernameChangedAt || now - usernameChangedAt.getTime() >= 7 * 24 * 60 * 60 * 1000;
+  const nextChangeDate = usernameChangedAt ? new Date(usernameChangedAt.getTime() + 7 * 24 * 60 * 60 * 1000) : null;
 
   // Sections start collapsed; expandables open only when the owner taps them and
   // re-close after a save, so the page never auto-opens onto personal info.
@@ -83,6 +94,7 @@ export default function SettingsPage() {
   async function saveProfile(event: FormEvent) {
     event.preventDefault();
     setSaving(true);
+    setUsernameError(null);
     try {
       const bikeInfo = {
         make: make.trim() || undefined,
@@ -91,7 +103,7 @@ export default function SettingsPage() {
         engineCc: engineCc.trim() ? Number(engineCc) : undefined,
       };
       await api.patch("/api/users/me", {
-        displayName: displayName.trim(),
+        username: username.trim().toLowerCase(),
         bio: bio.trim() || null,
         profileImage: profileImage.trim() || null,
         bikeInfo,
@@ -100,7 +112,15 @@ export default function SettingsPage() {
       setOpen("profile");
       toast.success("Profile saved");
     } catch (error) {
-      toast.error(error instanceof ApiError ? error.message : "Could not save profile");
+      if (error instanceof ApiError) {
+        if (error.message.includes("username") || error.message.includes("Username")) {
+          setUsernameError(error.message);
+        } else {
+          toast.error(error.message);
+        }
+      } else {
+        toast.error("Could not save profile");
+      }
     } finally {
       setSaving(false);
     }
@@ -157,8 +177,6 @@ export default function SettingsPage() {
       } else {
         setPushOn(false);
         toast.error(result.message);
-        // The answer may have changed the diagnosis (e.g. a blocked permission
-        // on an otherwise capable device), so re-read it.
         setPushSupportState(pushSupport());
       }
     } finally {
@@ -170,6 +188,10 @@ export default function SettingsPage() {
     const next = !soundAlerts;
     setSoundAlerts(next);
     localStorage.setItem("ridewing:sounds", next ? "on" : "off");
+  }
+
+  function formatCooldownDate(date: Date): string {
+    return date.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
   }
 
   return (
@@ -199,11 +221,30 @@ export default function SettingsPage() {
           open={open === "profile"}
           onToggle={() => toggleSection("profile")}
           title="Personal information"
-          hint="Name, bio, photo and your bike"
+          hint="Username, bio, photo and your bike"
         >
           <form onSubmit={saveProfile} className="space-y-4">
-            <Field label="Display name">
-              <Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} maxLength={60} required />
+            <Field label="Username" hint="Lowercase letters, numbers, underscores (2–30 chars).">
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400">@</span>
+                <Input
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))}
+                  maxLength={30}
+                  minLength={2}
+                  required
+                  disabled={!canChangeUsername}
+                  className="pl-7"
+                />
+              </div>
+              {!canChangeUsername && nextChangeDate && (
+                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                  You can change your username again on {formatCooldownDate(nextChangeDate)}.
+                </p>
+              )}
+              {usernameError && (
+                <p className="mt-1 text-xs text-red-600 dark:text-red-400" role="alert">{usernameError}</p>
+              )}
             </Field>
             <Field label="Bio" hint="Short and salty — up to 500 characters.">
               <textarea
@@ -236,7 +277,7 @@ export default function SettingsPage() {
                 <Input value={engineCc} onChange={(e) => setEngineCc(e.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="399" inputMode="numeric" />
               </Field>
             </div>
-            <Button type="submit" full loading={saving}>
+            <Button type="submit" full loading={saving} disabled={!canChangeUsername && saving}>
               Save profile
             </Button>
           </form>
@@ -404,9 +445,6 @@ function ToggleRow({ icon, title, description, value, disabled = false, busy = f
   busy?: boolean;
   onChange: (next: boolean) => void;
 }) {
-  // The switch stays clickable even when notifications are unavailable: the tap
-  // is what surfaces *why* (no VAPID key, insecure context, blocked permission)
-  // instead of leaving a dead, unexplained control on the screen.
   const inert = disabled || busy;
   return (
     <div className={`flex items-center gap-3 ${inert ? "opacity-60" : ""}`}>

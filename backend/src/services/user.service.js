@@ -9,7 +9,9 @@ const ApiError = require('../utils/ApiError');
 const { normalizeLimit } = require('../utils/pagination');
 
 /** Fields a rider is allowed to change about themselves. Nothing else is accepted. */
-const UPDATABLE_FIELDS = ['displayName', 'bio', 'profileImage', 'bikeInfo'];
+const UPDATABLE_FIELDS = ['bio', 'profileImage', 'bikeInfo'];
+
+const USERNAME_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
 
 async function getByUsername(username) {
   const user = await User.findOne({ where: { username: String(username).toLowerCase() } });
@@ -59,6 +61,24 @@ async function updateProfile(userId, payload) {
     if (payload[field] !== undefined) patch[field] = payload[field];
   });
 
+  // Handle username change with 7-day cooldown
+  if (payload.username !== undefined) {
+    const newUsername = String(payload.username).trim().toLowerCase();
+    if (newUsername !== user.username) {
+      const now = new Date();
+      const lastChanged = user.usernameChangedAt ? new Date(user.usernameChangedAt) : null;
+      if (lastChanged && now.getTime() - lastChanged.getTime() < USERNAME_COOLDOWN_MS) {
+        const nextChange = new Date(lastChanged.getTime() + USERNAME_COOLDOWN_MS);
+        throw ApiError.badRequest(`You can change your username again on ${nextChange.toLocaleDateString()}.`);
+      }
+      // Check uniqueness
+      const existing = await User.findOne({ where: { username: newUsername } });
+      if (existing) throw ApiError.badRequest('That username is already taken');
+      patch.username = newUsername;
+      patch.usernameChangedAt = now;
+    }
+  }
+
   if (Object.keys(patch).length === 0) throw ApiError.badRequest('No changes supplied');
 
   await user.update(patch);
@@ -68,18 +88,23 @@ async function updateProfile(userId, payload) {
 /**
  * Rider search by username or display name.
  *
- * `iLike` with a trailing wildcard keeps the query index-friendly; a leading
- * wildcard would force a full scan.
+ * Username uses prefix matching (index-friendly). Display name uses contains
+ * matching for better discoverability since users often search by real name.
  */
 async function search(term, { limit } = {}) {
   const query = String(term || '').trim();
   if (query.length < 2) return [];
 
-  const pattern = `${query.replace(/[%_\\]/g, '\\$&')}%`;
+  const escaped = query.replace(/[%_\\]/g, '\\$&');
+  const usernamePattern = `${escaped}%`;
+  const displayNamePattern = `%${escaped}%`;
 
   return User.findAll({
     where: {
-      [Op.or]: [{ username: { [Op.iLike]: pattern } }, { displayName: { [Op.iLike]: pattern } }],
+      [Op.or]: [
+        { username: { [Op.iLike]: usernamePattern } },
+        { displayName: { [Op.iLike]: displayNamePattern } },
+      ],
     },
     order: [['username', 'ASC']],
     limit: normalizeLimit(limit, 20),

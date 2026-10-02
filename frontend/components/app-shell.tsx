@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, type ReactNode } from "react";
+import { useEffect, useMemo, type ReactNode, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useSession } from "@/lib/auth";
@@ -13,17 +13,17 @@ import { WingMark } from "@/components/auth-shell";
 import type { Me } from "@/lib/types";
 import {
   BellIcon,
-  CogIcon,
   CommunitiesIcon,
   HomeIcon,
   MessagesIcon,
   PlusIcon,
-  RidesIcon,
   ShieldIcon,
-  SupportIcon,
 } from "@/components/icons";
 
 const CREATE_HREF = "/app/posts/new";
+
+const MORE_HREF = "/app/more";
+const MORE_PATHS = ["/app/rides", "/app/support", "/app/settings"];
 
 /**
  * An admin gets one extra destination. It is rendered only for admins rather
@@ -33,12 +33,10 @@ const ADMIN_HREF = "/app/admin";
 
 const TABS = [
   { href: "/app", label: "Today", icon: HomeIcon },
-  { href: "/app/rides", label: "Rides", icon: RidesIcon },
   { href: "/app/communities", label: "Communities", icon: CommunitiesIcon },
   { href: CREATE_HREF, label: "New post", icon: PlusIcon },
   { href: "/app/messages", label: "Messages", icon: MessagesIcon },
-  { href: "/app/support", label: "Support", icon: SupportIcon },
-  { href: "/app/settings", label: "Settings", icon: CogIcon },
+  { href: MORE_HREF, label: "More", icon: ShieldIcon },
 ];
 
 /**
@@ -54,6 +52,7 @@ const PUBLIC_PATHS: Array<string | RegExp> = [
   "/app/posts",
   /^\/app\/posts\/[^/]+$/,
   /^\/app\/profile\/[^/]+$/,
+  "/app/more",
 ];
 
 /**
@@ -73,23 +72,23 @@ export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const guest = status === "guest";
   const allowed = !guest || isPublicPath(pathname);
+  const mainRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     if (status === "guest" && !isPublicPath(pathname)) router.replace("/login");
     if (status === "authed") {
-      // Establish the socket when a session exists. Reconnects are handled by
-      // socket.io itself; token rotation rebuilds the instance in getSocket().
       try {
         getSocket();
       } catch {
-        // No token yet — the next render cycle will connect.
       }
-      // The worker has to exist before a push can ever arrive, so it is
-      // registered on every authenticated boot rather than only when the rider
-      // first visits the settings toggle.
       void registerServiceWorker();
     }
   }, [status, pathname, router]);
+
+  // Reset scroll position on navigation (since main is now the scroll container)
+  useEffect(() => {
+    mainRef.current?.scrollTo(0, 0);
+  }, [pathname]);
 
   // Tapping a push notification focuses this tab and asks us where to go. The
   // service worker cannot know the in-app route for every notification type, so
@@ -115,9 +114,9 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <NotificationsProvider>
-      <div className="relative mx-auto flex min-h-dvh w-full max-w-2xl flex-col">
+      <div className="relative mx-auto flex h-dvh w-full max-w-2xl flex-col overflow-hidden">
         <Header user={user} />
-        <main className="flex-1 pb-32">{children}</main>
+        <main ref={mainRef} className="flex-1 overflow-y-auto overscroll-contain pb-32">{children}</main>
         <BottomNav guest={guest} />
       </div>
     </NotificationsProvider>
@@ -184,9 +183,6 @@ function Header({ user }: { user: Me | null }) {
             </Link>
           </div>
         ) : (
-          // A guest gets the one action that matters: an account. Everything
-          // else on this chrome is write-only, so it is not rendered at all
-          // rather than shown disabled.
           <Link
             href="/register"
             className="rounded-full bg-emerald-600 px-4 py-1.5 text-sm font-semibold text-white shadow-sm shadow-emerald-600/30 transition-colors hover:bg-emerald-700"
@@ -202,15 +198,14 @@ function Header({ user }: { user: Me | null }) {
 function BottomNav({ guest }: { guest: boolean }) {
   const pathname = usePathname();
   const { messageUnread } = useNotifications();
-  // Only surfaces a guest can actually reach. Offering Messages, Rides or
-  // Settings would just bounce to /login, so a signed-out visitor sees the feed
-  // and a single sign-in call to action instead of seven dead ends.
   const tabs = guest ? TABS.filter((tab) => tab.href === "/app") : TABS;
   const active = useMemo(
     () =>
-      tabs.find((tab) =>
-        tab.href === "/app" ? pathname === "/app" : pathname === tab.href || pathname.startsWith(`${tab.href}/`),
-      ),
+      tabs.find((tab) => {
+        if (tab.href === "/app") return pathname === "/app";
+        if (tab.href === MORE_HREF) return MORE_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+        return pathname === tab.href || pathname.startsWith(`${tab.href}/`);
+      }),
     [pathname, tabs],
   );
 

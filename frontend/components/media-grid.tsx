@@ -169,10 +169,14 @@ function Lightbox({ url, onClose }: { url: string; onClose: () => void }) {
     };
     document.addEventListener("keydown", onKey);
     const previousOverflow = document.body.style.overflow;
+    const mainEl = document.querySelector("main");
+    const previousMainOverflow = mainEl?.style.overflow;
     document.body.style.overflow = "hidden";
+    if (mainEl) mainEl.style.overflow = "hidden";
     return () => {
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = previousOverflow;
+      if (mainEl) mainEl.style.overflow = previousMainOverflow ?? "";
     };
   }, [onClose]);
 

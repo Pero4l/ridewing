@@ -98,6 +98,10 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.DATE,
         allowNull: true,
       },
+      usernameChangedAt: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
     },
     {
       tableName: 'users',
@@ -168,6 +172,7 @@ module.exports = (sequelize, DataTypes) => {
       suspensionReason: this.suspensionReason,
       status: this.status,
       updatedAt: this.updatedAt,
+      usernameChangedAt: this.usernameChangedAt,
     };
   };
 

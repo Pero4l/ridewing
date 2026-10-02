@@ -209,13 +209,6 @@ export const SupportIcon = (p: IconProps) => (
   </svg>
 );
 
-export const ShieldIcon = (p: IconProps) => (
-  <svg {...base(p)}>
-    <path d="M12 3 5 6v5.5c0 4.2 2.9 8.1 7 9.5 4.1-1.4 7-5.3 7-9.5V6Z" />
-    <path d="m9 12 2 2 4-4" />
-  </svg>
-);
-
 export const CameraIcon = (p: IconProps) => (
   <svg {...base(p)}>
     <path d="M3 8.5A1.5 1.5 0 0 1 4.5 7h2L8 5h8l1.5 2h2A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5Z" />

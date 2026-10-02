@@ -1,40 +1,41 @@
+import dayjs from "dayjs";
+import relativeTime from "dayjs/plugin/relativeTime";
+import "dayjs/locale/en";
+
+dayjs.extend(relativeTime);
+
 export function timeAgo(iso: string | null | undefined): string {
   if (!iso) return "";
-  const then = new Date(iso).getTime();
-  const diff = Date.now() - then;
-  if (diff < 60000) return "now";
-  const minutes = Math.floor(diff / 60000);
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d`;
-  return new Date(iso).toLocaleDateString();
+  const then = dayjs(iso);
+  if (!then.isValid()) return "";
+  const now = dayjs();
+  const diffMinutes = now.diff(then, "minute");
+  if (diffMinutes < 1) return "now";
+  if (diffMinutes < 60) return `${diffMinutes}m`;
+  const diffHours = now.diff(then, "hour");
+  if (diffHours < 24) return `${diffHours}h`;
+  const diffDays = now.diff(then, "day");
+  if (diffDays < 7) return `${diffDays}d`;
+  // Instagram style: show "MMM D" for current year, "MMM D, YYYY" for past years
+  if (then.year() === now.year()) {
+    return then.format("MMM D");
+  }
+  return then.format("MMM D, YYYY");
 }
 
 export function fullDate(iso: string | null | undefined): string {
   if (!iso) return "";
-  return new Date(iso).toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return dayjs(iso).format("MMM D, h:mm A");
 }
 
-/** Calendar date only — no time of day. */
 export function fullDateOnly(iso: string | null | undefined): string {
   if (!iso) return "";
-  return new Date(iso).toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
+  return dayjs(iso).format("MMM D, YYYY");
 }
 
 export function clockTime(iso: string | null | undefined): string {
   if (!iso) return "";
-  return new Date(iso).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  return dayjs(iso).format("h:mm A");
 }
 
 export function initialsOf(displayName: string | null | undefined, username?: string): string {

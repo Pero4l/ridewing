@@ -26,6 +26,7 @@ export type PrivateUser = PublicUser & {
   status: "active" | "suspended";
   suspendedAt: string | null;
   suspensionReason: string | null;
+  usernameChangedAt: string | null;
 };
 
 export type Me = PrivateUser;
@@ -233,5 +234,7 @@ export type PostCommentItem = {
   parentId: string | null;
   content: string;
   createdAt: string;
+  likeCount: number;
+  viewerLiked: boolean;
   user: PublicUser | null;
 };
