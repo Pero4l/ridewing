@@ -17,6 +17,7 @@ import {
   HomeIcon,
   MessagesIcon,
   PlusIcon,
+  MenuIcon,
   ShieldIcon,
 } from "@/components/icons";
 
@@ -36,7 +37,7 @@ const TABS = [
   { href: "/app/communities", label: "Communities", icon: CommunitiesIcon },
   { href: CREATE_HREF, label: "New post", icon: PlusIcon },
   { href: "/app/messages", label: "Messages", icon: MessagesIcon },
-  { href: MORE_HREF, label: "More", icon: ShieldIcon },
+  { href: MORE_HREF, label: "More", icon: MenuIcon },
 ];
 
 /**

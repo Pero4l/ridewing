@@ -35,8 +35,8 @@ router.delete('/:id/like', validate({ params: postValidator.idParams }), postCon
 
 router.post('/:id/comments', writeLimiter, validate({ params: postValidator.idParams, body: postValidator.comment }), postController.addComment);
 
-router.post('/:id/comments/:commentId/like', writeLimiter, validate({ params: postValidator.idParams }), postController.likeComment);
-router.delete('/:id/comments/:commentId/like', validate({ params: postValidator.idParams }), postController.unlikeComment);
+router.post('/:id/comments/:commentId/like', writeLimiter, validate({ params: postValidator.commentIdParams }), postController.likeComment);
+router.delete('/:id/comments/:commentId/like', validate({ params: postValidator.commentIdParams }), postController.unlikeComment);
 
 router.post('/:id/share', writeLimiter, validate({ params: postValidator.idParams }), postController.share);
 router.post('/:id/repost', writeLimiter, validate({ params: postValidator.idParams }), postController.repost);

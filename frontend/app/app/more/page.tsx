@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { CogIcon, MicIcon, SupportIcon } from "@/components/icons";
+import { CogIcon, MicIcon, SupportIcon, VideoIcon } from "@/components/icons";
 import { Card, PageHeader, SectionTitle } from "@/components/ui";
 
 export default function MorePage() {
@@ -14,6 +14,19 @@ export default function MorePage() {
       <div className="space-y-2.5 px-4 pb-4 pt-1">
         <SectionTitle>Features</SectionTitle>
         <div className="space-y-2.5">
+          <Link href="/app/reels" className="block">
+            <Card padded={false} className="active:bg-zinc-50 dark:active:bg-zinc-900">
+              <div className="flex items-center gap-3 px-4 py-4">
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">
+                  <VideoIcon size={20} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-zinc-900 dark:text-zinc-100">Reels</p>
+                  <p className="text-sm text-zinc-400">Watch short videos from riders</p>
+                </div>
+              </div>
+            </Card>
+          </Link>
           <Link href="/app/rides" className="block">
             <Card padded={false} className="active:bg-zinc-50 dark:active:bg-zinc-900">
               <div className="flex items-center gap-3 px-4 py-4">

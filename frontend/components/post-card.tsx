@@ -9,9 +9,9 @@ import { useToast } from "@/components/toast";
 import { Avatar } from "@/components/avatar";
 import { VerifiedBadge } from "@/components/verified-badge";
 import { FollowButton } from "@/components/follow-button";
-import { MediaGrid } from "@/components/media-grid";
+import { MediaGrid, useVideoLightbox } from "@/components/media-grid";
 import { PostEditDialog } from "@/components/post-edit-dialog";
-import { CommentIcon, DotsHorizontalIcon, EditIcon, HeartIcon, LinkIcon, RepostIcon, ShareIcon, TrashIcon, XIcon } from "@/components/icons";
+import { CommentIcon, DotsHorizontalIcon, EditIcon, HeartIcon, LinkIcon, RepostIcon, ShareIcon, TrashIcon, XIcon, Volume2Icon, VolumeXIcon, ExpandIcon } from "@/components/icons";
 import { SpinnerIcon } from "@/components/spinner";
 import { timeAgo } from "@/lib/format";
 import type { Me, Post, PostCommentItem } from "@/lib/types";
@@ -44,6 +44,8 @@ export function PostCard({ post, onChanged, viewer }: PostCardProps) {
   const liked = post.viewerLiked;
   const reposted = post.viewerReposted;
   const isMine = Boolean(post.user && viewerUser && post.user.id === viewerUser.id);
+
+  const { video, open: openVideo, VideoLightbox } = useVideoLightbox();
 
   /**
    * Guests can read a post but not act on it. Rather than letting the tap 401
@@ -260,7 +262,12 @@ export function PostCard({ post, onChanged, viewer }: PostCardProps) {
         </p>
       )}
 
-      {post.media.length > 0 && <div className="mt-3"><MediaGrid media={post.media} /></div>}
+      {post.media.length > 0 && (
+        <div className="mt-3">
+          <MediaGrid media={post.media} onVideoClick={openVideo} />
+          {VideoLightbox}
+        </div>
+      )}
 
       <div className="mt-3 flex items-center justify-between text-xs font-medium text-zinc-500 dark:text-zinc-400">
         <button

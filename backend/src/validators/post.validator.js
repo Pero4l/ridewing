@@ -36,5 +36,6 @@ const comment = z
 
 const feedParams = pagination;
 const idParams = z.object({ id: z.string().uuid('Must be a valid post id') }).strict();
+const commentIdParams = z.object({ id: z.string().uuid('Must be a valid post id'), commentId: z.string().uuid('Must be a valid comment id') }).strict();
 
 module.exports = { create, edit, comment, feedParams, idParams };

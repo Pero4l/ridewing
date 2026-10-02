@@ -195,6 +195,12 @@ export const ShieldIcon = (p: IconProps) => (
   </svg>
 );
 
+export const MenuIcon = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M4 6h16M4 12h16M4 18h16" />
+  </svg>
+);
+
 export const ChevronRightIcon = (p: IconProps) => (
   <svg {...base(p)}>
     <path d="m9 6 6 6-6 6" />
@@ -323,5 +329,27 @@ export const StopIcon = (p: IconProps) => (
   <svg {...base(p)}>
     <path d="M9 3.5 3.5 9v6L9 20.5h6L20.5 15V9L15 3.5Z" />
     <path d="M12 8.5v3.5M12 15.5h.01" strokeWidth={2.5} />
+  </svg>
+);
+
+export const Volume2Icon = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M11 5L6 9H2v6h4l5 4V5z" />
+    <path d="M19 9a4 4 0 0 1 0 6" />
+    <path d="M22 7a7 7 0 0 1 0 10" />
+  </svg>
+);
+
+export const VolumeXIcon = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M11 5L6 9H2v6h4l5 4V5z" />
+    <line x1="15" y1="9" x2="20" y2="14" />
+    <line x1="20" y1="9" x2="15" y2="14" />
+  </svg>
+);
+
+export const ExpandIcon = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M4 8V4h4M22 8V4h-4M4 16v4h4M22 16v4h-4" />
   </svg>
 );

@@ -41,10 +41,13 @@ function sleep(ms: number) {
  */
 function requestMicrophone(): Promise<MediaStream> {
   const nav = navigator as NavigateWithLegacyMedia;
+  // Use simpler constraints that work reliably on iOS Safari
+  // iOS Safari has issues with echoCancellation/noiseSuppression/autoGainControl constraints
+  const constraints: MediaStreamConstraints = {
+    audio: true,
+  };
   if (nav.mediaDevices?.getUserMedia) {
-    return nav.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-    });
+    return nav.mediaDevices.getUserMedia(constraints);
   }
   const legacy = nav.getUserMedia || nav.webkitGetUserMedia;
   if (legacy) {
