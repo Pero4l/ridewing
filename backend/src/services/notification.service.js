@@ -113,6 +113,7 @@ function buildPushPayload(notification) {
     case 'post_comment': copy.title = `${actor} commented on your post`; break;
     case 'comment_reply': copy.title = `${actor} replied to your comment`; break;
     case 'post_share': copy.title = `${actor} shared your post`; break;
+    case 'comment_like': copy.title = `${actor} liked your comment`; break;
     case 'follow': copy.title = `${actor} followed you`; break;
     case 'community_join_request': copy.title = `${actor} wants to join your community`; break;
     case 'community_join_approved': copy.title = 'Your community request was approved'; break;
@@ -179,6 +180,11 @@ function buildEmailPayload(notification) {
     case 'post_share':
       subject = `${actorName} shared your post`;
       preview = `${actorName} shared your post on RideWing.`;
+      button = { href: postHref, label: 'View post' };
+      break;
+    case 'comment_like':
+      subject = `${actorName} liked your comment`;
+      preview = `${actorName} liked your comment on RideWing.`;
       button = { href: postHref, label: 'View post' };
       break;
     case 'follow':
