@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { CogIcon, MicIcon, SupportIcon, VideoIcon } from "@/components/icons";
+import { BrandMark, BrandName, GrandcrestCredit } from "@/components/brand";
 import { Card, PageHeader, SectionTitle } from "@/components/ui";
 
 export default function MorePage() {
@@ -67,6 +68,21 @@ export default function MorePage() {
             </Card>
           </Link>
         </div>
+      </div>
+
+      {/*
+       * Attribution lives at the bottom of the app's own "More" screen as well
+       * as on the marketing and auth pages, so the company that built RideWing is
+       * credited to a signed-in rider too and not only to a visitor.
+       */}
+      <div className="flex flex-col items-center gap-3 border-t border-zinc-100 px-4 py-6 dark:border-zinc-800">
+        <div className="flex items-center gap-2">
+          <BrandMark className="h-7 w-7 rounded-lg" />
+          <span className="text-sm font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
+            <BrandName />
+          </span>
+        </div>
+        <GrandcrestCredit />
       </div>
     </div>
   );

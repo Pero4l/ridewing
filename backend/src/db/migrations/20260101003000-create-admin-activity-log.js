@@ -16,8 +16,12 @@
  * Deliberately not updated or deleted by the application. There is no route
  * that writes to this table other than adminService, and no route that edits
  * its rows.
+ *
+ * Column keys are snake_case, like every other migration here. `queryInterface`
+ * takes these keys literally — it does *not* apply the model's `underscored`
+ * option — so a camelCase key here silently creates a camelCase column that the
+ * model then cannot read. See 20261004120000-fix-admin-activity-log-columns.js.
  */
-
 module.exports = {
   async up(queryInterface, Sequelize) {
     await queryInterface.createTable('admin_activity_logs', {
@@ -30,14 +34,14 @@ module.exports = {
       // The staff member who acted. ON DELETE SET NULL rather than CASCADE: if a
       // staff account is ever removed we keep the record of what it did and lose
       // only the name attached to it.
-      adminId: {
+      admin_id: {
         type: Sequelize.UUID,
         allowNull: true,
         references: { model: 'users', key: 'id' },
         onUpdate: 'CASCADE',
         onDelete: 'SET NULL',
       },
-      adminUsername: {
+      admin_username: {
         type: Sequelize.STRING(30),
         allowNull: false,
       },
@@ -45,14 +49,14 @@ module.exports = {
         type: Sequelize.STRING(60),
         allowNull: false,
       },
-      targetId: {
+      target_id: {
         type: Sequelize.UUID,
         allowNull: true,
         references: { model: 'users', key: 'id' },
         onUpdate: 'CASCADE',
         onDelete: 'SET NULL',
       },
-      targetUsername: {
+      target_username: {
         type: Sequelize.STRING(30),
         allowNull: true,
       },
@@ -64,7 +68,7 @@ module.exports = {
         allowNull: false,
         defaultValue: {},
       },
-      createdAt: {
+      created_at: {
         type: Sequelize.DATE,
         allowNull: false,
         defaultValue: Sequelize.fn('NOW'),
@@ -72,11 +76,12 @@ module.exports = {
     });
 
     // The console reads this newest-first, filtered by action or by actor.
-    await queryInterface.addIndex('admin_activity_logs', ['createdAt']);
-    await queryInterface.addIndex('admin_activity_logs', ['action', 'createdAt']);
+    await queryInterface.addIndex('admin_activity_logs', ['created_at']);
+    await queryInterface.addIndex('admin_activity_logs', ['action', 'created_at']);
   },
 
   async down(queryInterface) {
     await queryInterface.dropTable('admin_activity_logs');
   },
 };
+

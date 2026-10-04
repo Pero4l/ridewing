@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { BrandLockup, BrandMark, BrandName, GrandcrestCredit } from "@/components/brand";
 
 export const metadata = {
   title: "RideWing — Ride with riders you trust",
@@ -24,23 +25,12 @@ export default function Home() {
   );
 }
 
-function Logo({ className = "" }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" className={className} fill="currentColor" aria-hidden>
-      <path d="M12 2.5c1.6 2.6 3.4 4.2 6 5.5-.7 4.2-3.1 7.2-6 8.4-2.9-1.2-5.3-4.2-6-8.4 2.6-1.3 4.4-2.9 6-5.5Z" opacity="0.92" />
-      <path d="M3 17.5c1.9-.4 3.6-.2 5.2.5C9.7 19 11 20.2 12 22c1-1.8 2.3-3 3.8-4 1.6-.7 3.3-.9 5.2-.5-.8 2.3-2.1 4-4.5 4.5-1.3 1.2-3 2-4.5 2.5-1.5-.5-3.2-1.3-4.5-2.5C5.1 21.5 3.8 19.8 3 17.5Z" />
-    </svg>
-  );
-}
-
 function Header() {
   return (
     <header className="relative z-20 mx-auto flex max-w-6xl items-center justify-between px-6 py-6">
       <Link href="/" className="flex items-center gap-2.5 font-bold tracking-tight">
-        <span className="grid h-9 w-9 place-items-center rounded-xl bg-emerald-600 text-white shadow-md shadow-emerald-600/25">
-          <Logo className="h-5 w-5" />
-        </span>
-        RideWing
+        <BrandMark className="h-9 w-9" />
+        <BrandName />
       </Link>
       <nav className="hidden items-center gap-7 text-sm font-medium text-zinc-600 dark:text-zinc-400 md:flex">
         <a href="#features" className="transition-colors hover:text-zinc-900 dark:hover:text-zinc-100">Features</a>
@@ -69,7 +59,8 @@ function Hero() {
   return (
     <section className="relative mx-auto max-w-6xl px-6 pt-16 pb-24 text-center md:pt-24">
       <div className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-96 bg-[radial-gradient(55%_70%_at_50%_0%,rgb(16_185_129/0.14),transparent)]" />
-      <p className="mx-auto inline-flex items-center gap-2 rounded-full border border-emerald-600/20 bg-emerald-600/10 px-3 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400">
+      <BrandLockup className="mx-auto w-64 shadow-2xl shadow-zinc-950/20 sm:w-72" />
+      <p className="mx-auto mt-8 inline-flex items-center gap-2 rounded-full border border-emerald-600/20 bg-emerald-600/10 px-3 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400">
         Built for riders you trust
       </p>
       <h1 className="mx-auto mt-6 max-w-3xl text-4xl leading-[1.1] font-bold tracking-tight text-balance md:text-6xl">
@@ -257,14 +248,15 @@ function Footer() {
   return (
     <footer className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-6 pb-10 sm:flex-row">
       <div className="flex items-center gap-2 text-sm font-semibold">
-        <span className="grid h-6 w-6 place-items-center rounded-md bg-emerald-600 text-white">
-          <Logo className="h-3.5 w-3.5" />
-        </span>
-        RideWing
+        <BrandMark className="h-6 w-6 rounded-md" />
+        <BrandName />
       </div>
-      <p className="text-xs text-zinc-400 dark:text-zinc-600">
-        © {new Date().getFullYear()} RideWing. Ride with the crew you trust.
-      </p>
+      <div className="flex flex-col items-center gap-2">
+        <p className="text-xs text-zinc-400 dark:text-zinc-600">
+          © {new Date().getFullYear()} RideWing. Ride with the crew you trust.
+        </p>
+        <GrandcrestCredit />
+      </div>
       <div className="flex items-center gap-5 text-xs text-zinc-400 dark:text-zinc-600">
         <Link href="/login" className="transition-colors hover:text-zinc-700 dark:hover:text-zinc-300">Sign in</Link>
         <Link href="/register" className="transition-colors hover:text-zinc-700 dark:hover:text-zinc-300">Join</Link>

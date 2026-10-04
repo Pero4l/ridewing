@@ -19,6 +19,18 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "RideWing",
   description: "Ride with riders you trust. Voice, chat and group rides.",
+  applicationName: "RideWing",
+  appleWebApp: { capable: true, title: "RideWing", statusBarStyle: "black-translucent" },
+  icons: {
+    // Generated from public/ridewinglogo.png — see scripts/generate-icons.mjs.
+    // Declared explicitly so the 192 asset is advertised as the home-screen icon
+    // rather than left to the browser to guess from /favicon.ico.
+    icon: [
+      { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icon-512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [{ url: "/icon-192.png", sizes: "192x192" }],
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

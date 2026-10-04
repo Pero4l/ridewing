@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { useSession } from "@/lib/auth";
-import { AuthShell, WingMark } from "@/components/auth-shell";
+import { AuthShell } from "@/components/auth-shell";
+import { BrandMark } from "@/components/brand";
 import { Button } from "@/components/ui";
 import { SpinnerIcon } from "@/components/spinner";
 import { CheckIcon, VerifiedBadgeIcon } from "@/components/icons";
@@ -139,7 +140,7 @@ function VerifyCard({ children, status, onSignOut }: { children: React.ReactNode
   return (
     <div className="w-full max-w-sm">
       <div className="mb-6 flex flex-col items-center gap-2">
-        <WingMark className="text-emerald-600" />
+        <BrandMark className="h-10 w-10" />
         <h1 className="text-xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">Verify your email</h1>
       </div>
       <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">

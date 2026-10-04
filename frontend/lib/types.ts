@@ -34,13 +34,29 @@ export type Me = PrivateUser;
 /** A user as the admin console sees them: private details included. */
 export type AdminUser = PrivateUser;
 
-/** The admin console's activity list — the admin's own actions, newest first. */
+/**
+ * The admin console's activity list — the admin's own actions, newest first.
+ *
+ * `metadata` is free-form context the backend stores per action: the previous
+ * and new role, or the reason a rider was suspended. It is shaped by the
+ * validator rather than by a column type, so it is read as an open record.
+ */
 export type AdminActivity = {
   id: string;
   action: string;
   targetUsername: string | null;
-  createdAt: string;
   adminUsername: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+};
+
+/** The admin console's headline counts. */
+export type AdminStats = {
+  usersTotal: number;
+  usersActive: number;
+  usersSuspended: number;
+  ridesActive: number;
+  postsTotal: number;
 };
 
 export type Profile = PublicUser & {

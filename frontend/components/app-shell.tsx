@@ -9,7 +9,7 @@ import { registerServiceWorker } from "@/lib/push";
 import { NotificationsProvider, useNotifications } from "@/components/notifications-context";
 import { Avatar } from "@/components/avatar";
 import { InlineSpinner } from "@/components/spinner";
-import { WingMark } from "@/components/auth-shell";
+import { BrandMark, BrandName } from "@/components/brand";
 import type { Me } from "@/lib/types";
 import {
   BellIcon,
@@ -142,11 +142,9 @@ export function AppShell({ children }: { children: ReactNode }) {
 function Brand() {
   return (
     <Link href="/app" className="flex shrink-0 items-center gap-2" aria-label="RideWing home">
-      <span className="grid h-8 w-8 place-items-center rounded-xl bg-emerald-600 text-white shadow-sm shadow-emerald-600/30">
-        <WingMark className="h-5 w-5" />
-      </span>
+      <BrandMark className="h-8 w-8 rounded-lg" />
       <span className="hidden text-sm font-bold tracking-tight text-zinc-900 sm:block dark:text-zinc-50">
-        RideWing
+        <BrandName />
       </span>
     </Link>
   );
