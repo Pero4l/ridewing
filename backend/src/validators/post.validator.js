@@ -1,7 +1,7 @@
 'use strict';
 
 const { z } = require('zod');
-const { pagination } = require('./common.validator');
+const { pagination, username } = require('./common.validator');
 
 const mediaItem = z
   .object({
@@ -38,4 +38,9 @@ const feedParams = pagination;
 const idParams = z.object({ id: z.string().uuid('Must be a valid post id') }).strict();
 const commentIdParams = z.object({ id: z.string().uuid('Must be a valid post id'), commentId: z.string().uuid('Must be a valid comment id') }).strict();
 
-module.exports = { create, edit, comment, feedParams, idParams };
+// "Send this post to @someone". The recipient is a username rather than a
+// conversation id so the client does not have to open the thread first and can
+// keep the whole share to a single request.
+const shareTo = z.object({ username }).strict();
+
+module.exports = { create, edit, comment, feedParams, idParams, commentIdParams, shareTo };

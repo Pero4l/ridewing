@@ -24,6 +24,8 @@ const ApiError = require('../utils/ApiError');
 const { normalizeLimit, decodeCursor, buildPage } = require('../utils/pagination');
 const notificationService = require('./notification.service');
 const emailService = require('./email.service');
+const conversationService = require('./conversation.service');
+const messageService = require('./message.service');
 const { withPosters } = require('./media.service');
 
 const MAX_MEDIA_ITEMS = 9;
@@ -174,14 +176,36 @@ async function getPost(postId, viewerId) {
 }
 
 async function feed(userId, { limit, cursor } = {}) {
+  return pagedPosts({ limit, cursor, viewerId: userId });
+}
+
+/**
+ * The same feed narrowed to posts that carry a video.
+ *
+ * Reels used to be the feed fetched page by page and filtered in the browser,
+ * which threw away every page that happened to contain no video — a page of ten
+ * photo posts loaded and discarded, and a feed that could end early with "no more
+ * reels" while video posts still existed below the cursor. Filtering in the query
+ * means the cursor always walks video posts and nothing else.
+ */
+async function reels(userId, { limit, cursor } = {}) {
+  return pagedPosts({ limit, cursor, viewerId: userId, hasVideo: true });
+}
+
+async function pagedPosts({ limit, cursor, viewerId, hasVideo = false }) {
   const pageSize = normalizeLimit(limit, 20);
   const decoded = decodeCursor(cursor);
-  const viewer = userId ?? ANONYMOUS_VIEWER;
+  const viewer = viewerId ?? ANONYMOUS_VIEWER;
 
   // Facebook-style feed: every rider's posts, newest first, so riders always
   // have something new to scroll even before they follow anyone.
   const where = {};
   if (decoded?.createdAt) where.createdAt = { [Op.lt]: new Date(decoded.createdAt) };
+  if (hasVideo) {
+    // `media` is a JSONB array of { type }, so "has at least one video" is a
+    // containment test. `contained` is the operator that maps to `@>`.
+    where.media = { [Op.contains]: [{ type: 'video' }] };
+  }
 
   const rows = await Post.findAll({
     where,
@@ -467,6 +491,51 @@ async function share(postId, userId) {
   return addInteraction(postId, userId, { kind: 'share', counter: 'share_count', notify: true });
 }
 
+/**
+ * Sends a post into a rider's direct messages.
+ *
+ * Sharing a post means "you should see this", not "let my followers see it" — so
+ * this opens (or finds) the direct thread, writes the post into it as a message,
+ * and never touches the sharer's profile. The share counter still moves, because
+ * a forwarded post is still a share, and the author is told about it.
+ */
+async function shareToFriend(postId, userId, username) {
+  // Read once here and hand the instance to `send`, so the post and its author
+  // are not fetched again just to serialize the message that carries them.
+  const post = await loadPostOrThrow(postId);
+
+  const { conversation } = await conversationService.getOrCreateDirect(userId, username);
+
+  const { message } = await messageService.send(conversation.id, userId, {
+    content: '',
+    sharedPostId: post.id,
+    preloadedSharedPost: post,
+  });
+
+  // Counted once per recipient, without a PostShare row: there is no follow-graph
+  // broadcast to record and nothing to show on a profile tab.
+  await sequelize.query('UPDATE posts SET share_count = share_count + 1 WHERE id = :id', {
+    replacements: { id: post.id },
+  });
+
+  if (post.userId !== userId) {
+    queueMicrotask(() =>
+      notificationService
+        .create({
+          userId: post.userId,
+          actorId: userId,
+          type: 'post_share',
+          entityType: 'post',
+          entityId: postId,
+          data: { postId, kind: 'direct' },
+        })
+        .catch(() => {}),
+    );
+  }
+
+  return { conversation, message };
+}
+
 async function repost(postId, userId) {
   return addInteraction(postId, userId, { kind: 'repost', counter: 'repost_count', notify: true });
 }
@@ -606,6 +675,7 @@ module.exports = {
   create,
   update,
   feed,
+  reels,
   getPost,
   like,
   unlike,
@@ -614,6 +684,7 @@ module.exports = {
   listComments,
   addComment,
   share,
+  shareToFriend,
   repost,
   unrepost,
   remove,

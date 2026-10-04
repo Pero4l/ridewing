@@ -26,6 +26,15 @@ router.get(
   userController.search,
 );
 
+// Who the signed-in rider can send things to. Also ahead of `:username`, which
+// would otherwise swallow "friends" as a username lookup.
+router.get(
+  '/friends',
+  requireAuth,
+  validate({ query: userValidator.friendsQuery }),
+  userController.friends,
+);
+
 router.get(
   '/:username',
   optionalAuth,

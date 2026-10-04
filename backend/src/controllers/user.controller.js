@@ -32,6 +32,12 @@ const search = asyncHandler(async (req, res) => {
   });
 });
 
+const friends = asyncHandler(async (req, res) => {
+  const { q, limit } = req.validatedQuery;
+  const users = await userService.friends(req.user.id, { q, limit });
+  res.json({ users });
+});
+
 const follow = asyncHandler(async (req, res) => {
   const result = await followService.follow(req.user.id, req.params.username);
   res.status(result.created ? 201 : 200).json({ following: true });
@@ -63,6 +69,7 @@ module.exports = {
   getProfile,
   updateProfile,
   search,
+  friends,
   follow,
   unfollow,
   listFollowers,

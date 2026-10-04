@@ -11,7 +11,7 @@ const { Op } = require('sequelize');
 
 const env = require('../config/env');
 const logger = require('../config/logger');
-const { Message, Conversation, ConversationMember, User, sequelize } = require('../models');
+const { Message, Conversation, ConversationMember, User, Post, sequelize } = require('../models');
 const ApiError = require('../utils/ApiError');
 const { normalizeLimit, decodeCursor, buildPage } = require('../utils/pagination');
 const conversationService = require('./conversation.service');
@@ -19,10 +19,12 @@ const communityService = require('./community.service');
 const emailService = require('./email.service');
 const notificationService = require('./notification.service');
 
-/** Trims and length-checks content before it reaches the database. */
+/**
+ * Trims and length-checks content. Empty is allowed only alongside a shared post,
+ * so "send them this" never has to be dressed up as a sentence.
+ */
 function normalizeContent(raw) {
   const content = String(raw ?? '').trim();
-  if (!content) throw ApiError.badRequest('Message cannot be empty');
   if (content.length > env.limits.maxMessageLength) {
     throw ApiError.badRequest(
       `Message cannot exceed ${env.limits.maxMessageLength} characters`,
@@ -30,6 +32,18 @@ function normalizeContent(raw) {
     );
   }
   return content;
+}
+
+/** Loads the post a message forwards, rejecting one that has since been deleted. */
+async function loadSharedPost(sharedPostId) {
+  const post = await Post.findByPk(sharedPostId, { attributes: ['id'] });
+  if (!post) throw ApiError.badRequest('That post is no longer available');
+  return post;
+}
+
+/** Content and post together must produce a message worth storing. */
+function assertSendable(content, sharedPostId) {
+  if (!content && !sharedPostId) throw ApiError.badRequest('Message cannot be empty');
 }
 
 /**
@@ -55,7 +69,7 @@ async function notifyDirectRecipient(conversationId, senderId, message) {
     type: 'message',
     entityType: 'conversation',
     entityId: conversationId,
-    data: { conversationId, messageId: message.id, content: message.content },
+    data: { conversationId, messageId: message.id, content: message.content, sharedPostId: message.sharedPostId ?? null },
   });
 
   await emailSenderCopy(conversationId, senderId, recipientId, message);
@@ -79,16 +93,19 @@ async function emailSenderCopy(conversationId, senderId, recipientId, message) {
   const toName = recipient?.username ? `@${recipient.username}` : 'your rider';
   const subject = `You sent a message to ${toName}`;
   const snippet = String(message.content ?? '').trim();
+  // A forwarded post with no note has nothing to quote, so the mail says what was
+  // sent instead of printing an empty pair of quotes.
+  const body = snippet ? `"${snippet}"` : 'You shared a post.';
 
   try {
     await emailService.sendTransactional({
       to: sender.email,
       subject,
-      text: `${subject}\n\n"${snippet.slice(0, 160)}"\n\n${frontend}/app/messages/${conversationId}`,
+      text: `${subject}\n\n${body}\n\n${frontend}/app/messages/${conversationId}`,
       html: emailService.renderHtml({
         title: subject,
         preview: 'A copy of your message, in case you need it later.',
-        paragraphs: [`"${snippet.slice(0, 300)}"`],
+        paragraphs: [snippet ? `"${snippet.slice(0, 300)}"` : 'You shared a post in this conversation.'],
         button: { href: `${frontend}/app/messages/${conversationId}`, label: 'Open conversation' },
       }),
     });
@@ -102,9 +119,16 @@ async function emailSenderCopy(conversationId, senderId, recipientId, message) {
  *
  * Membership is re-checked inside the transaction: a rider removed from a community
  * a moment ago must not get one last message through.
+ *
+ * `preloadedSharedPost` lets a caller that has already read the post (sharing from
+ * the post itself) hand it over instead of paying for it to be fetched twice. The
+ * foreign key still guards the write, so a post deleted in between is rejected by
+ * the database rather than forwarded.
  */
-async function send(conversationId, senderId, { content, clientNonce = null }) {
+async function send(conversationId, senderId, { content, clientNonce = null, sharedPostId = null, preloadedSharedPost = null }) {
   const body = normalizeContent(content);
+  const postId = sharedPostId ? String(sharedPostId) : null;
+  assertSendable(body, postId);
   const nonce = clientNonce ? String(clientNonce).slice(0, 64) : null;
 
   try {
@@ -115,8 +139,12 @@ async function send(conversationId, senderId, { content, clientNonce = null }) {
       });
       if (!membership) throw ApiError.notFound('Conversation not found');
 
+      // Verified inside the transaction so a post deleted between the tap and the
+      // write cannot be forwarded.
+      if (postId && !preloadedSharedPost) await loadSharedPost(postId);
+
       const created = await Message.create(
-        { conversationId, senderId, content: body, clientNonce: nonce },
+        { conversationId, senderId, content: body, sharedPostId: postId, clientNonce: nonce },
         { transaction },
       );
 
@@ -130,6 +158,13 @@ async function send(conversationId, senderId, { content, clientNonce = null }) {
     });
 
     message.sender = await User.findByPk(senderId);
+    message.sharedPost =
+      preloadedSharedPost ??
+      (postId
+        ? await Post.findByPk(postId, {
+            include: [{ model: User, as: 'user' }],
+          })
+        : null);
 
     // Only reached on a genuinely fresh row — a nonce replay returns from the
     // catch below, so the recipient is never nudged twice for the same message.
@@ -145,9 +180,16 @@ async function send(conversationId, senderId, { content, clientNonce = null }) {
     if (error.name === 'SequelizeUniqueConstraintError' && nonce) {
       const existing = await Message.findOne({
         where: { conversationId, clientNonce: nonce },
-        include: [{ model: User, as: 'sender' }],
+        include: [{ model: User, as: 'sender' }, { model: Post, as: 'sharedPost', required: false }],
       });
-      if (existing) return { message: existing, duplicate: true };
+      if (existing) {
+        // Nested includes are not eager-loaded, so the replayed post needs its
+        // author attached separately or the recipient would see an unattributed card.
+        if (existing.sharedPost) {
+          existing.sharedPost.user = await User.findByPk(existing.sharedPost.userId);
+        }
+        return { message: existing, duplicate: true };
+      }
     }
     throw error;
   }
@@ -170,7 +212,10 @@ async function history(conversationId, userId, { limit, cursor } = {}) {
 
   const rows = await Message.findAll({
     where,
-    include: [{ model: User, as: 'sender', required: false }],
+    include: [
+      { model: User, as: 'sender', required: false },
+      { model: Post, as: 'sharedPost', required: false, include: [{ model: User, as: 'user' }] },
+    ],
     order: [['createdAt', 'DESC'], ['id', 'DESC']],
     limit: pageSize + 1,
   });

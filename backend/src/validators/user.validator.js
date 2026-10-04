@@ -33,4 +33,12 @@ const listQuery = z
   .merge(pagination.strict())
   .strict();
 
-module.exports = { usernameParam, updateProfile, searchQuery, listQuery };
+// The share sheet searches within a rider's own connections, so an empty query is
+// the normal case (it lists everyone you follow or who follows you). Unlike the
+// directory search it does not demand two characters.
+const friendsQuery = z
+  .object({ q: z.string().trim().max(60).optional().default('') })
+  .merge(pagination.partial())
+  .strict();
+
+module.exports = { usernameParam, updateProfile, searchQuery, listQuery, friendsQuery };

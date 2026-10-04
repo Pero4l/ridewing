@@ -24,13 +24,19 @@ const { normalize } = require('../middleware/errorHandler');
 
 const joinSchema = z.object({ conversationId: z.string().uuid() }).strict();
 
+// A send carries a note, a forwarded post, or both — never neither.
 const sendSchema = z
   .object({
     conversationId: z.string().uuid(),
-    content: z.string().min(1).max(env.limits.maxMessageLength),
+    content: z.string().trim().max(env.limits.maxMessageLength).optional().default(''),
+    sharedPostId: z.string().uuid().optional(),
     clientNonce: z.string().trim().min(8).max(64).optional(),
   })
-  .strict();
+  .strict()
+  .refine((value) => Boolean(value.content) || Boolean(value.sharedPostId), {
+    message: 'Message cannot be empty',
+    path: ['content'],
+  });
 
 const typingSchema = z
   .object({ conversationId: z.string().uuid(), isTyping: z.boolean() })
@@ -99,7 +105,7 @@ module.exports = function registerChatHandlers(io, socket) {
         });
       }
 
-      const { conversationId, content, clientNonce } = sendSchema.parse(payload);
+      const { conversationId, content, sharedPostId, clientNonce } = sendSchema.parse(payload);
 
       // Re-check on every send: membership may have been revoked since the join.
       const allowed = await conversationService.canAccess(conversationId, userId);
@@ -107,6 +113,7 @@ module.exports = function registerChatHandlers(io, socket) {
 
       const { message, duplicate } = await messageService.send(conversationId, userId, {
         content,
+        sharedPostId,
         clientNonce,
       });
 

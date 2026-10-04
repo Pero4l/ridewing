@@ -21,6 +21,8 @@ const router = express.Router();
  * be linkable.
  */
 router.get('/', optionalAuth, validate({ query: postValidator.feedParams }), postController.listFeed);
+// Declared before `/:id` so "reels" is not read as a post id.
+router.get('/reels', optionalAuth, validate({ query: postValidator.feedParams }), postController.listReels);
 router.get('/:id', optionalAuth, validate({ params: postValidator.idParams }), postController.getDetail);
 router.get('/:id/comments', optionalAuth, validate({ params: postValidator.idParams, query: postValidator.feedParams }), postController.listComments);
 
@@ -39,6 +41,12 @@ router.post('/:id/comments/:commentId/like', writeLimiter, validate({ params: po
 router.delete('/:id/comments/:commentId/like', validate({ params: postValidator.commentIdParams }), postController.unlikeComment);
 
 router.post('/:id/share', writeLimiter, validate({ params: postValidator.idParams }), postController.share);
+router.post(
+  '/:id/share-to',
+  writeLimiter,
+  validate({ params: postValidator.idParams, body: postValidator.shareTo }),
+  postController.shareToFriend,
+);
 router.post('/:id/repost', writeLimiter, validate({ params: postValidator.idParams }), postController.repost);
 router.delete('/:id/repost', validate({ params: postValidator.idParams }), postController.unrepost);
 

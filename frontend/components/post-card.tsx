@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
@@ -11,7 +11,8 @@ import { VerifiedBadge } from "@/components/verified-badge";
 import { FollowButton } from "@/components/follow-button";
 import { MediaGrid, useVideoLightbox } from "@/components/media-grid";
 import { PostEditDialog } from "@/components/post-edit-dialog";
-import { CommentIcon, DotsHorizontalIcon, EditIcon, HeartIcon, LinkIcon, RepostIcon, ShareIcon, TrashIcon, XIcon, Volume2Icon, VolumeXIcon, ExpandIcon } from "@/components/icons";
+import { ShareSheet } from "@/components/share-sheet";
+import { CommentIcon, DotsHorizontalIcon, EditIcon, HeartIcon, RepostIcon, ShareIcon, TrashIcon, XIcon } from "@/components/icons";
 import { SpinnerIcon } from "@/components/spinner";
 import { timeAgo } from "@/lib/format";
 import type { Me, Post, PostCommentItem } from "@/lib/types";
@@ -25,27 +26,30 @@ type PostCardProps = {
    * identically without a second source of truth for "am I signed in".
    */
   viewer?: Me | null;
+  /**
+   * Whether the comment thread starts open. A single post reached from a shared
+   * link or a profile grid is a place people came to read the conversation, so
+   * there it starts open; in a feed it stays collapsed until asked for.
+   */
+  defaultShowComments?: boolean;
 };
 
-export function PostCard({ post, onChanged, viewer }: PostCardProps) {
+export function PostCard({ post, onChanged, viewer, defaultShowComments = false }: PostCardProps) {
   const { user: me } = useSession();
   const toast = useToast();
   const router = useRouter();
-  const [liking, setLiking] = useState(false);
-  const [shareBusy, setShareBusy] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const [repostBusy, setRepostBusy] = useState(false);
-  const [linkBusy, setLinkBusy] = useState(false);
-  const [showComments, setShowComments] = useState(false);
+  const [showComments, setShowComments] = useState(defaultShowComments);
   const [menuOpen, setMenuOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [editing, setEditing] = useState(false);
 
   const viewerUser = viewer !== undefined ? viewer : me;
-  const liked = post.viewerLiked;
   const reposted = post.viewerReposted;
   const isMine = Boolean(post.user && viewerUser && post.user.id === viewerUser.id);
 
-  const { video, open: openVideo, VideoLightbox } = useVideoLightbox();
+  const { open: openVideo, VideoLightbox } = useVideoLightbox();
 
   /**
    * Guests can read a post but not act on it. Rather than letting the tap 401
@@ -59,38 +63,7 @@ export function PostCard({ post, onChanged, viewer }: PostCardProps) {
     return false;
   }
 
-  async function toggleLike() {
-    if (liking) return;
-    if (!requireViewer("like posts")) return;
-    setLiking(true);
-    try {
-      if (liked) {
-        await api.delete(`/api/posts/${post.id}/like`);
-      } else {
-        await api.post(`/api/posts/${post.id}/like`);
-      }
-      onChanged();
-    } catch (error) {
-      toast.error(error instanceof ApiError ? error.message : "Could not update like");
-    } finally {
-      setLiking(false);
-    }
-  }
-
-  async function share() {
-    if (shareBusy) return;
-    if (!requireViewer("share posts")) return;
-    setShareBusy(true);
-    try {
-      await api.post(`/api/posts/${post.id}/share`);
-      toast.success("Shared to your followers");
-      onChanged();
-    } catch (error) {
-      toast.error(error instanceof ApiError ? error.message : "Could not share post");
-    } finally {
-      setShareBusy(false);
-    }
-  }
+  const { liked, likeCount, toggleLike } = useOptimisticLike(post, () => requireViewer("like posts"));
 
   /**
    * Repost to the viewer's own profile. The toggle removes it again rather than
@@ -114,39 +87,6 @@ export function PostCard({ post, onChanged, viewer }: PostCardProps) {
       toast.error(error instanceof ApiError ? error.message : "Could not repost");
     } finally {
       setRepostBusy(false);
-    }
-  }
-
-  /**
-   * Copies a link to the post, and for a video post the direct media file too.
-   *
-   * The post link is what someone actually wants to open. The raw file link is
-   * included because that is what "share this clip" means in practice — a rider
-   * forwarding a video to a group chat wants the file, not the page wrapped
-   * around it. Both are attempted independently so one failure does not lose
-   * the other.
-   */
-  async function copyLink() {
-    if (linkBusy) return;
-    setLinkBusy(true);
-    try {
-      const postUrl = `${window.location.origin}/app/posts/${post.id}`;
-      await navigator.clipboard.writeText(postUrl);
-      const video = post.media.find((item) => item.type === "video");
-      if (video) {
-        try {
-          await navigator.clipboard.writeText(video.url);
-          toast.success("Post and video links copied");
-        } catch {
-          toast.success("Post link copied");
-        }
-      } else {
-        toast.success("Link copied");
-      }
-    } catch {
-      toast.error("Could not copy the link");
-    } finally {
-      setLinkBusy(false);
     }
   }
 
@@ -272,14 +212,15 @@ export function PostCard({ post, onChanged, viewer }: PostCardProps) {
       <div className="mt-3 flex items-center justify-between text-xs font-medium text-zinc-500 dark:text-zinc-400">
         <button
           type="button"
-          onClick={() => void toggleLike()}
-          disabled={liking}
-          className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 transition-colors hover:bg-zinc-100 disabled:opacity-50 dark:hover:bg-zinc-800 ${
+          onClick={toggleLike}
+          aria-pressed={liked}
+          aria-label={liked ? "Unlike this post" : "Like this post"}
+          className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 transition-colors hover:bg-zinc-100 active:scale-95 dark:hover:bg-zinc-800 ${
             liked ? "text-red-500 dark:text-red-400" : ""
           }`}
         >
-          {liking ? <SpinnerIcon size={14} className="animate-spin" /> : <HeartIcon size={15} className={liked ? "fill-current" : ""} />}
-          {post.likeCount}
+          <HeartIcon size={15} className={`${liked ? "fill-current" : ""} transition-transform active:scale-125`} />
+          {likeCount}
         </button>
         <button
           type="button"
@@ -287,6 +228,7 @@ export function PostCard({ post, onChanged, viewer }: PostCardProps) {
             if (!requireViewer("join the conversation")) return;
             setShowComments((value) => !value);
           }}
+          aria-expanded={showComments}
           className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800"
         >
           <CommentIcon size={14} />
@@ -304,31 +246,100 @@ export function PostCard({ post, onChanged, viewer }: PostCardProps) {
           {repostBusy ? <SpinnerIcon size={14} className="animate-spin" /> : <RepostIcon size={14} className={reposted ? "fill-current" : ""} />}
           {post.repostCount}
         </button>
+        {/*
+         * Share sends the post into somebody's DMs rather than broadcasting it to
+         * the sharer's followers, so the button opens a picker rather than acting
+         * on its own.
+         */}
         <button
           type="button"
-          onClick={() => void share()}
-          disabled={shareBusy}
-          className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 transition-colors hover:bg-zinc-100 disabled:opacity-50 dark:hover:bg-zinc-800"
+          onClick={() => {
+            if (!requireViewer("share posts")) return;
+            setShareOpen(true);
+          }}
+          aria-label="Share this post"
+          className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800"
         >
-          {shareBusy ? <SpinnerIcon size={14} className="animate-spin" /> : <ShareIcon size={14} />}
+          <ShareIcon size={14} />
           {post.shareCount}
-        </button>
-        <button
-          type="button"
-          onClick={() => void copyLink()}
-          disabled={linkBusy}
-          aria-label="Copy link to this post"
-          className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 transition-colors hover:bg-zinc-100 disabled:opacity-50 dark:hover:bg-zinc-800"
-        >
-          {linkBusy ? <SpinnerIcon size={14} className="animate-spin" /> : <LinkIcon size={14} />}
         </button>
       </div>
 
       {showComments && <CommentThread postId={post.id} onChanged={onChanged} viewer={viewerUser} />}
 
       {editing && <PostEditDialog post={post} onClose={() => setEditing(false)} onSaved={handleEdited} />}
+
+      {shareOpen && (
+        <ShareSheet
+          post={post}
+          onClose={() => setShareOpen(false)}
+          onSent={() => {
+            onChanged();
+          }}
+        />
+      )}
     </article>
   );
+}
+
+/**
+ * A like that registers before the network does.
+ *
+ * The tap updates the heart and the count immediately and the write follows.
+ *
+ * The override is stored against the values it was derived from rather than
+ * cleared in an effect: as soon as the server's numbers arrive through props they
+ * stop matching, the override is ignored, and the card self-heals from any drift
+ * (a like made in another tab, a failed write, a double-tap). Requests are
+ * chained rather than fired in parallel so a rider tapping faster than the
+ * network cannot apply them out of order.
+ */
+function useOptimisticLike(post: Post, guard: () => boolean) {
+  const toast = useToast();
+  const queue = useRef<Promise<unknown>>(Promise.resolve());
+  const [override, setOverride] = useState<Optimistic<number> | null>(null);
+  const baseLiked = post.viewerLiked;
+  const baseCount = post.likeCount;
+  const { liked, count } = resolveOverride(override, { liked: baseLiked, count: baseCount });
+
+  const toggleLike = useCallback(() => {
+    if (!guard()) return;
+    const nextLiked = !liked;
+    setOverride({
+      base: { liked: baseLiked, count: baseCount },
+      liked: nextLiked,
+      count: Math.max(0, count + (nextLiked ? 1 : -1)),
+    });
+
+    const request = nextLiked ? api.post(`/api/posts/${post.id}/like`) : api.delete(`/api/posts/${post.id}/like`);
+    queue.current = queue.current
+      .then(() => request)
+      .catch((error) => {
+        // Drop back to the server's truth rather than leaving a lie on screen.
+        setOverride(null);
+        toast.error(error instanceof ApiError ? error.message : "Could not update like");
+      });
+  }, [guard, liked, count, baseLiked, baseCount, post.id, toast]);
+
+  return { liked, likeCount: count, toggleLike };
+}
+
+type Optimistic<T> = {
+  /** The server values this override was computed from. */
+  base: { liked: boolean; count: T };
+  liked: boolean;
+  count: T;
+};
+
+/**
+ * An optimistic value applies only while the props still look like the ones it
+ * was derived from. Anything else — the server confirming, correcting or
+ * reverting the write — supersedes it with no extra bookkeeping.
+ */
+function resolveOverride<T>(override: Optimistic<T> | null, base: { liked: boolean; count: T }) {
+  if (!override) return base;
+  if (override.base.liked !== base.liked || override.base.count !== base.count) return base;
+  return { liked: override.liked, count: override.count };
 }
 
 function CommentThread({ postId, onChanged, viewer }: { postId: string; onChanged: () => void; viewer?: Me | null }) {
@@ -336,7 +347,9 @@ function CommentThread({ postId, onChanged, viewer }: { postId: string; onChange
   const [draft, setDraft] = useState("");
   const [replyingTo, setReplyingTo] = useState<PostCommentItem | null>(null);
   const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
+  // Counted rather than a single flag, so posting one comment does not block the
+  // next while the first is still on the wire.
+  const [inFlight, setInFlight] = useState(0);
   const toast = useToast();
 
   useEffect(() => {
@@ -374,25 +387,46 @@ function CommentThread({ postId, onChanged, viewer }: { postId: string; onChange
   async function submit(event: FormEvent) {
     event.preventDefault();
     const content = draft.trim();
-    if (!content || submitting) return;
+    if (!content) return;
     if (!viewer) {
       promptSignup();
       return;
     }
-    setSubmitting(true);
+
+    // Optimistic: the comment is on screen the instant it is submitted, with the
+    // author already known, so the thread never appears to swallow the tap. The
+    // server response replaces it in place; a failure removes it again.
+    const nonce = crypto.randomUUID();
+    const optimistic: PostCommentItem = {
+      id: `pending-${nonce}`,
+      postId,
+      parentId: replyingTo?.id ?? null,
+      content,
+      createdAt: new Date().toISOString(),
+      likeCount: 0,
+      viewerLiked: false,
+      user: viewer,
+      pending: true,
+    };
+
+    setInFlight((count) => count + 1);
+    setComments((current) => [...current, optimistic]);
+    setDraft("");
+    setReplyingTo(null);
+    onChanged();
+
     try {
       const res = await api.post<{ comment: PostCommentItem }>(`/api/posts/${postId}/comments`, {
         content,
-        parentId: replyingTo?.id,
+        parentId: optimistic.parentId ?? undefined,
       });
-      setComments((current) => [...current, res.comment]);
-      setDraft("");
-      setReplyingTo(null);
-      onChanged();
+      setComments((current) => current.map((comment) => (comment.id === optimistic.id ? res.comment : comment)));
     } catch (err) {
+      setComments((current) => current.filter((comment) => comment.id !== optimistic.id));
+      setDraft(content);
       toast.error(err instanceof ApiError ? err.message : "Could not post comment");
     } finally {
-      setSubmitting(false);
+      setInFlight((count) => count - 1);
     }
   }
 
@@ -452,12 +486,18 @@ function CommentThread({ postId, onChanged, viewer }: { postId: string; onChange
           />
           <button
             type="submit"
-            disabled={!draft.trim() || submitting}
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-emerald-600 text-white transition-colors hover:bg-emerald-500 disabled:opacity-40"
+            disabled={!draft.trim()}
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-emerald-600 text-white transition-colors hover:bg-emerald-500 active:scale-95 disabled:opacity-40"
             aria-label="Post comment"
           >
-            {submitting ? <SpinnerIcon size={15} className="animate-spin" /> : <CommentIcon size={15} />}
+            <CommentIcon size={15} />
           </button>
+          {inFlight > 0 && (
+            <span className="flex items-center gap-1 text-[11px] text-zinc-400">
+              <SpinnerIcon size={11} className="animate-spin" />
+              {inFlight > 1 ? `Posting ${inFlight}` : "Posting"}
+            </span>
+          )}
         </form>
       ) : (
         <p className="pt-1 text-center text-xs text-zinc-400">
@@ -484,34 +524,39 @@ function CommentRow({
 }) {
   const { user: me } = useSession();
   const toast = useToast();
-  const [liking, setLiking] = useState(false);
-  const liked = comment.viewerLiked;
-  const likeCount = comment.likeCount;
+  const queue = useRef<Promise<unknown>>(Promise.resolve());
 
-  async function toggleCommentLike() {
-    if (liking || !me) return;
+  // A comment like is local state rather than a prop read, so the heart can fill
+  // on the tap instead of after the round-trip. See `resolveOverride`.
+  const [override, setOverride] = useState<Optimistic<number> | null>(null);
+  const baseLiked = comment.viewerLiked;
+  const baseCount = comment.likeCount;
+  const { liked, count } = resolveOverride(override, { liked: baseLiked, count: baseCount });
+
+  const toggleCommentLike = useCallback(() => {
     if (!me) {
       toast.error("Create a free account to like comments");
       return;
     }
-    setLiking(true);
-    try {
-      if (liked) {
-        await api.delete(`/api/posts/${comment.postId}/comments/${comment.id}/like`);
-      } else {
-        await api.post(`/api/posts/${comment.postId}/comments/${comment.id}/like`);
-      }
-      // Update local state optimistically
-      // Note: parent CommentThread will need to refresh or we update via onChanged
-    } catch (error) {
-      toast.error(error instanceof ApiError ? error.message : "Could not update like");
-    } finally {
-      setLiking(false);
-    }
-  }
+    const nextLiked = !liked;
+    setOverride({
+      base: { liked: baseLiked, count: baseCount },
+      liked: nextLiked,
+      count: Math.max(0, count + (nextLiked ? 1 : -1)),
+    });
+
+    const path = `/api/posts/${comment.postId}/comments/${comment.id}/like`;
+    const request = nextLiked ? api.post(path) : api.delete(path);
+    queue.current = queue.current
+      .then(() => request)
+      .catch((error) => {
+        setOverride(null);
+        toast.error(error instanceof ApiError ? error.message : "Could not update like");
+      });
+  }, [me, liked, count, baseLiked, baseCount, comment.postId, comment.id, toast]);
 
   return (
-    <div className="space-y-2.5">
+    <div className={`space-y-2.5 ${comment.pending ? "opacity-60" : ""}`}>
       <div className={`flex items-start gap-2.5 ${isReply ? "pl-2 sm:pl-6" : ""}`}>
         {comment.user && (
           <Link href={`/app/profile/${comment.user.username}`}>
@@ -523,28 +568,32 @@ function CommentRow({
             <p className="flex items-center gap-1 text-xs font-semibold text-zinc-800 dark:text-zinc-200">
               <span className="truncate">{comment.user?.displayName ?? "Someone"}</span>
               <VerifiedBadge user={comment.user} size={11} />
-              <span className="font-normal text-zinc-400">· {timeAgo(comment.createdAt)}</span>
+              <span className="font-normal text-zinc-400">· {comment.pending ? "sending…" : timeAgo(comment.createdAt)}</span>
             </p>
             <p className="mt-0.5 whitespace-pre-wrap break-words text-sm text-zinc-700 dark:text-zinc-300">{comment.content}</p>
           </div>
-          <div className="flex items-center gap-2 mt-0.5">
+          <div className="mt-0.5 flex items-center gap-2">
+            {!comment.pending && (
+              <button
+                type="button"
+                onClick={() => onReply(comment)}
+                className="text-[11px] font-semibold text-zinc-400 transition-colors hover:text-emerald-700 dark:hover:text-emerald-400"
+              >
+                Reply
+              </button>
+            )}
             <button
               type="button"
-              onClick={() => onReply(comment)}
-              className="text-[11px] font-semibold text-zinc-400 transition-colors hover:text-emerald-700 dark:hover:text-emerald-400"
-            >
-              Reply
-            </button>
-            <button
-              type="button"
-              onClick={() => void toggleCommentLike()}
-              disabled={liking || !me}
+              onClick={toggleCommentLike}
+              disabled={!me || comment.pending}
+              aria-pressed={liked}
+              aria-label={liked ? "Remove like from this comment" : "Like this comment"}
               className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium transition-colors hover:bg-zinc-100 disabled:opacity-50 dark:hover:bg-zinc-800 ${
                 liked ? "text-red-500 dark:text-red-400" : "text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300"
               }`}
             >
-              {liking ? <SpinnerIcon size={10} className="animate-spin" /> : <HeartIcon size={11} className={liked ? "fill-current" : ""} />}
-              {likeCount > 0 && likeCount}
+              <HeartIcon size={11} className={liked ? "fill-current" : ""} />
+              {count > 0 && count}
             </button>
           </div>
         </div>

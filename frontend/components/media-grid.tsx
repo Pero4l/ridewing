@@ -1,35 +1,53 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import Link from "next/link";
 import type { PostMedia } from "@/lib/types";
 import { VideoIcon, XIcon, Volume2Icon, VolumeXIcon, ExpandIcon } from "@/components/icons";
 
-export function MediaGrid({ media, preview = true, onVideoClick }: { media: PostMedia[]; preview?: boolean; onVideoClick?: (url: string, posterUrl?: string) => void }) {
+type MediaGridProps = {
+  media: PostMedia[];
+  /**
+   * `false` renders the square profile-gallery layout instead of the in-post
+   * layout. The difference is only presentation — a grid still has to know where
+   * a tile came from, which is what `linkTo` is for.
+   */
+  preview?: boolean;
+  /**
+   * Where a tile navigates to when tapped, keyed by media item. Used by the
+   * profile gallery, where tiles are stripped of everything but their media, so
+   * without this a video tile is inert and a photo opens a lightbox with no way
+   * to the caption, likes or comments it belongs to.
+   */
+  linkTo?: (item: PostMedia) => string | undefined;
+  onVideoClick?: (url: string, posterUrl?: string) => void;
+};
+
+export function MediaGrid({ media, preview = true, linkTo, onVideoClick }: MediaGridProps) {
   const [expanded, setExpanded] = useState(false);
 
   if (!media.length) return null;
 
-  if (!preview) {
-    return (
-      <div className="grid grid-cols-3 gap-1.5">
-        {media.map((item) =>
-          item.type === "video" ? <VideoTile key={item.url} item={item} compact onVideoClick={onVideoClick} /> : <ImageTile key={item.url} item={item} />,
-        )}
-      </div>
+  const render = (item: PostMedia, key: string, compact: boolean) =>
+    linkTo ? (
+      <LinkedTile key={key} href={linkTo(item)}>
+        {item.type === "video" ? <VideoTileBody item={item} /> : <MediaThumb item={item} />}
+      </LinkedTile>
+    ) : item.type === "video" ? (
+      <VideoTile key={key} item={item} compact={compact} onVideoClick={onVideoClick} />
+    ) : (
+      <ImageTile key={key} item={item} />
     );
+
+  if (!preview) {
+    return <div className="grid grid-cols-3 gap-1.5">{media.map((item, i) => render(item, `${item.url}-${i}`, true))}</div>;
   }
 
   if (media.length <= 4) {
     const count = media.length;
     const columns =
       count === 1 ? "grid-cols-1" : count === 3 ? "grid-cols-2 [&>*:first-child]:col-span-2 [&>*:first-child]:row-span-2" : "grid-cols-2";
-    return (
-      <div className={`grid gap-1.5 ${columns}`}>
-        {media.map((item) =>
-          item.type === "video" ? <VideoTile key={item.url} item={item} compact={count > 1} /> : <ImageTile key={item.url} item={item} />,
-        )}
-      </div>
-    );
+    return <div className={`grid gap-1.5 ${columns}`}>{media.map((item, i) => render(item, `${item.url}-${i}`, count > 1))}</div>;
   }
 
   const overflowCount = media.length - 4;
@@ -39,9 +57,10 @@ export function MediaGrid({ media, preview = true, onVideoClick }: { media: Post
     <div className="space-y-1.5">
       <div className="grid grid-cols-2 gap-1.5">
         {previewItems.map((item, index) => {
+          const key = `${item.url}-${index}`;
           if (index === 3) {
             return (
-              <TileButton key={item.url} onOpen={() => setExpanded((value) => !value)}>
+              <TileButton key={key} onOpen={() => setExpanded((value) => !value)}>
                 <MediaThumb item={item} />
                 <div className="absolute inset-0 grid place-items-center bg-black/60 backdrop-blur-[2px]">
                   <span className="text-3xl font-bold text-white">+{overflowCount}</span>
@@ -49,17 +68,24 @@ export function MediaGrid({ media, preview = true, onVideoClick }: { media: Post
               </TileButton>
             );
           }
-          return item.type === "video" ? <VideoTile key={item.url} item={item} compact onVideoClick={onVideoClick} /> : <ImageTile key={item.url} item={item} />;
+          return render(item, key, true);
         })}
       </div>
-      {expanded && (
-        <div className="grid grid-cols-2 gap-1.5">
-          {media.map((item) =>
-            item.type === "video" ? <VideoTile key={item.url} item={item} compact onVideoClick={onVideoClick} /> : <ImageTile key={item.url} item={item} />,
-          )}
-        </div>
-      )}
+      {expanded && <div className="grid grid-cols-2 gap-1.5">{media.map((item, i) => render(item, `${item.url}-${i}`, true))}</div>}
     </div>
+  );
+}
+
+/** A grid tile that opens the post the media came from. */
+function LinkedTile({ href, children }: { href: string | undefined; children: ReactNode }) {
+  const body = (
+    <span className="block relative aspect-square overflow-hidden rounded-lg bg-zinc-100 dark:bg-zinc-800">{children}</span>
+  );
+  if (!href) return body;
+  return (
+    <Link href={href} className="group block">
+      {body}
+    </Link>
   );
 }
 
@@ -122,15 +148,7 @@ function VideoTile({ item, compact, onVideoClick }: { item: PostMedia; compact: 
   if (compact) {
     return (
       <TileButton onOpen={() => onVideoClick?.(item.url, item.posterUrl)}>
-        <video
-          src={item.url}
-          poster={item.posterUrl}
-          muted
-          loop
-          playsInline
-          preload="metadata"
-          className="absolute inset-0 h-full w-full object-cover"
-        />
+        <VideoTileBody item={item} />
         <VideoBadge />
       </TileButton>
     );
@@ -147,6 +165,28 @@ function VideoTile({ item, compact, onVideoClick }: { item: PostMedia; compact: 
       />
       <VideoBadge />
     </TileButton>
+  );
+}
+
+/**
+ * The video tile as a plain element, for the grid where the tap navigates rather
+ * than opening the player: an interactive `<video>` inside a link would swallow
+ * the navigation on some browsers.
+ */
+function VideoTileBody({ item }: { item: PostMedia }) {
+  return (
+    <>
+      <video
+        src={item.url}
+        poster={item.posterUrl}
+        muted
+        loop
+        playsInline
+        preload="metadata"
+        className="absolute inset-0 h-full w-full object-cover"
+      />
+      <VideoBadge />
+    </>
   );
 }
 

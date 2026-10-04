@@ -132,7 +132,8 @@ async function listForUser(userId) {
   // "one row per group" and is satisfied by the (conversation_id, created_at) index.
   const latestRows = await sequelize.query(
     `SELECT DISTINCT ON (m.conversation_id)
-            m.conversation_id, m.id, m.content, m.sender_id, m.created_at
+            m.conversation_id, m.id, m.content, m.sender_id, m.created_at,
+            m.shared_post_id IS NOT NULL AS has_shared_post
        FROM messages m
       WHERE m.conversation_id IN (:conversationIds)
         AND m.deleted_at IS NULL
@@ -185,7 +186,10 @@ async function listForUser(userId) {
       lastMessage: latest
         ? {
             id: latest.id,
-            content: latest.content,
+            // A forwarded post often has no text, so the list falls back to saying
+            // so rather than showing a blank row.
+            content: latest.content || (latest.has_shared_post ? 'Shared a post' : ''),
+            hasSharedPost: Boolean(latest.has_shared_post),
             senderId: latest.sender_id,
             createdAt: latest.created_at,
           }

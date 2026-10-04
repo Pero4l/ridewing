@@ -129,7 +129,13 @@ function buildPushPayload(notification) {
       copy.tag = `ride-signal-${data.rideId ?? entityId}`;
       copy.renotify = true;
       break;
-    case 'message': copy.title = `${actor} sent you a message`; break;
+    // A forwarded post often carries no text of its own, so the copy leads with
+    // what actually arrived rather than rendering an empty preview.
+    case 'message':
+      copy.title = data.sharedPostId
+        ? `${actor} shared a post with you`
+        : `${actor} sent you a message`;
+      break;
     case 'support_ticket': copy.title = 'Your support ticket was resolved'; break;
     default: break;
   }
@@ -212,10 +218,14 @@ function buildEmailPayload(notification) {
       button = { href: communityHref, label: 'Open community' };
       break;
     case 'message': {
-      subject = `${actorName} sent you a message`;
+      subject = data.sharedPostId ? `${actorName} shared a post with you` : `${actorName} sent you a message`;
       const snippet = typeof data.content === 'string' ? data.content.trim() : '';
-      preview = snippet ? `"${snippet.slice(0, 160)}"` : 'Tap through to read the message.';
-      paragraphs = [`${actorName} sent you a message in RideWing.`];
+      preview = snippet
+        ? `"${snippet.slice(0, 160)}"`
+        : data.sharedPostId
+          ? `${actorName} forwarded a post into your conversation.`
+          : 'Tap through to read the message.';
+      paragraphs = [`${actorName} ${data.sharedPostId ? 'shared a post' : 'sent you a message'} in RideWing.`];
       button = { href: `${frontend}/app/messages`, label: 'Read message' };
       break;
     }

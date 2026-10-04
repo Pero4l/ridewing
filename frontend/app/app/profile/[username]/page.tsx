@@ -16,15 +16,14 @@ import { MediaGrid } from "@/components/media-grid";
 import { PostCard } from "@/components/post-card";
 import { RepostIcon } from "@/components/icons";
 import { bikeLabel, fullDateOnly } from "@/lib/format";
-import type { Page, Post, Profile, PublicUser } from "@/lib/types";
+import type { Page, Post, PostMedia, Profile, PublicUser } from "@/lib/types";
 
 type CountTab = "followers" | "following" | null;
-type GalleryTab = "posts" | "tagged" | "shared" | "reposts";
+type GalleryTab = "posts" | "tagged" | "reposts";
 
 const TAB_LABELS: Record<GalleryTab, string> = {
   posts: "Posts",
   reposts: "Reposts",
-  shared: "Shared",
   tagged: "Tagged",
 };
 
@@ -117,10 +116,24 @@ export default function ProfilePage({ params }: { params: Promise<{ username: st
     [loadPosts],
   );
 
-  const visibleMedia = useMemo(
-    () => posts.flatMap((post) => post.media.filter((item) => item.url)),
-    [posts],
-  );
+  /**
+   * The gallery is a flat list of media, but a tile still has to know which post
+   * it came from — that is what makes a tap open the post itself (video included,
+   * with its caption, likes and comments) instead of a lightbox that has lost
+   * all of it. Keyed by media URL because the same asset can appear twice.
+   */
+  const visibleMedia = useMemo(() => {
+    const items: PostMedia[] = [];
+    const postByUrl = new Map<string, string>();
+    for (const post of posts) {
+      for (const item of post.media) {
+        if (!item.url) continue;
+        if (!postByUrl.has(item.url)) postByUrl.set(item.url, post.id);
+        items.push(item);
+      }
+    }
+    return { items, postByUrl };
+  }, [posts]);
 
   async function message() {
     if (!profile || messaging) return;
@@ -277,7 +290,12 @@ export default function ProfilePage({ params }: { params: Promise<{ username: st
       {!countTab && (
         <div className="mt-4 border-t border-zinc-100 dark:border-zinc-800">
           <div className="flex items-center justify-around border-b border-zinc-100 dark:border-zinc-800">
-            {(["posts", "reposts", "shared", "tagged"] as GalleryTab[]).map((tab) => (
+            {/*
+             * "Shared" is deliberately absent. Sharing a post now sends it to a
+             * rider's DMs, which leaves nothing on a profile to show — a tab that
+             * could only ever be empty would be worse than no tab.
+             */}
+            {(["posts", "reposts", "tagged"] as GalleryTab[]).map((tab) => (
               <button
                 key={tab}
                 type="button"
@@ -316,29 +334,30 @@ export default function ProfilePage({ params }: { params: Promise<{ username: st
                 ))}
               </div>
             )
-          ) : visibleMedia.length === 0 ? (
+          ) : visibleMedia.items.length === 0 ? (
             <EmptyState
               icon={<span className="text-lg font-bold">📷</span>}
               title={
-                galleryTab === "posts"
-                  ? "No posts yet"
-                  : galleryTab === "shared"
-                    ? "Nothing shared yet"
-                    : "No tagged posts yet"
+                galleryTab === "posts" ? "No posts yet" : "No tagged posts yet"
               }
               description={
                 galleryTab === "posts"
                   ? isSelf
                     ? "Share a photo or note from the feed."
                     : "Riders share their rides as they go."
-                  : galleryTab === "shared"
-                    ? "Posts this rider has passed on will appear here."
-                    : "Posts mentioning @this rider will appear here."
+                  : "Posts mentioning @this rider will appear here."
               }
             />
           ) : (
             <div className="p-2">
-              <MediaGrid media={visibleMedia} preview={false} />
+              <MediaGrid
+                media={visibleMedia.items}
+                preview={false}
+                linkTo={(item) => {
+                  const postId = visibleMedia.postByUrl.get(item.url);
+                  return postId ? `/app/posts/${postId}` : undefined;
+                }}
+              />
             </div>
           )}
           {!postsLoading && galleryTab !== "reposts" && (

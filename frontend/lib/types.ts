@@ -98,11 +98,39 @@ export type Message = {
   conversationId: string;
   senderId: string;
   content: string;
+  /** Set when the message forwards a post instead of (or alongside) text. */
+  sharedPostId: string | null;
+  /** The forwarded post, resolved server-side so the bubble can render it inline. */
+  sharedPost: SharedPost | null;
   clientNonce: string | null;
   createdAt: string;
   sender?: PublicUser;
   pending?: boolean;
   failed?: boolean;
+};
+
+/**
+ * A post as it appears inside a chat bubble: enough to render the card and open
+ * the post. Viewer-specific fields (did *I* like it) are deliberately absent.
+ */
+export type SharedPost = {
+  id: string;
+  content: string;
+  media: PostMedia[];
+  likeCount: number;
+  commentCount: number;
+  createdAt: string;
+  user: PublicUser | null;
+};
+
+/**
+ * Someone the signed-in rider can send a post to: a connection in either
+ * direction, with `isMutual` saying whether it goes both ways.
+ */
+export type Friend = PublicUser & {
+  isMutual: boolean;
+  followsYou: boolean;
+  viewerIsFollowing: boolean;
 };
 
 export type ConversationListItem = {
@@ -112,7 +140,7 @@ export type ConversationListItem = {
   community: { id: string; name: string; slug: string; image: string | null } | null;
   participants: PublicUser[];
   title: string;
-  lastMessage: { id: string; content: string; senderId: string; createdAt: string } | null;
+  lastMessage: { id: string; content: string; hasSharedPost?: boolean; senderId: string; createdAt: string } | null;
   lastMessageAt: string | null;
   unreadCount: number;
   lastReadAt: string | null;
@@ -237,4 +265,6 @@ export type PostCommentItem = {
   likeCount: number;
   viewerLiked: boolean;
   user: PublicUser | null;
+  /** Set on the local stand-in shown between submitting a comment and it landing. */
+  pending?: boolean;
 };

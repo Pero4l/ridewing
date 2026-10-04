@@ -2,6 +2,8 @@
 
 const asyncHandler = require('../utils/asyncHandler');
 const postService = require('../services/post.service');
+const conversationService = require('../services/conversation.service');
+const { emitToConversation, emitToUser } = require('../sockets/emit');
 
 const create = asyncHandler(async (req, res) => {
   const post = await postService.create(req.user.id, req.body);
@@ -12,6 +14,11 @@ const create = asyncHandler(async (req, res) => {
 // defensively — a signed-out visitor simply has no likes or follows to report.
 const listFeed = asyncHandler(async (req, res) => {
   const page = await postService.feed(req.user?.id, req.validatedQuery);
+  res.json(page);
+});
+
+const listReels = asyncHandler(async (req, res) => {
+  const page = await postService.reels(req.user?.id, req.validatedQuery);
   res.json(page);
 });
 
@@ -60,6 +67,33 @@ const share = asyncHandler(async (req, res) => {
   res.json(result);
 });
 
+/**
+ * Sends the post into a rider's direct messages.
+ *
+ * The reply carries the conversation as well as the message so the client can
+ * send optimistically and then jump straight into the thread — and so the live
+ * broadcast has the same shape as the socket path.
+ */
+const shareToFriend = asyncHandler(async (req, res) => {
+  const { conversation, message } = await postService.shareToFriend(
+    req.params.id,
+    req.user.id,
+    req.body.username,
+  );
+
+  const payload = message.toJSONSafe();
+  emitToConversation(conversation.id, 'message:new', payload);
+  const members = await conversationService.memberIds(conversation.id);
+  for (const memberId of new Set([...members, req.user.id])) {
+    emitToUser(memberId, 'message:new', payload);
+  }
+
+  res.status(201).json({
+    conversation: { id: conversation.id, type: conversation.type },
+    message: payload,
+  });
+});
+
 const repost = asyncHandler(async (req, res) => {
   const result = await postService.repost(req.params.id, req.user.id);
   res.json(result);
@@ -79,6 +113,7 @@ module.exports = {
   create,
   update,
   listFeed,
+  listReels,
   getDetail,
   like,
   unlike,
@@ -87,6 +122,7 @@ module.exports = {
   listComments,
   addComment,
   share,
+  shareToFriend,
   repost,
   unrepost,
   remove,

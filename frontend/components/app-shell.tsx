@@ -67,12 +67,22 @@ function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATHS.some((rule) => (typeof rule === "string" ? pathname === rule : rule.test(pathname)));
 }
 
+/**
+ * Routes that own their own scrolling and fill the screen edge to edge.
+ *
+ * These get no bottom clearance from the shell: the nav floats over them anyway,
+ * and padding the scroll container for a page that lays itself out one viewport
+ * at a time would leave a dead strip of nothing below the last item.
+ */
+const OWN_SCROLL_PATHS: RegExp[] = [/^\/app\/reels$/];
+
 export function AppShell({ children }: { children: ReactNode }) {
   const { status, user } = useSession();
   const router = useRouter();
   const pathname = usePathname();
   const guest = status === "guest";
   const allowed = !guest || isPublicPath(pathname);
+  const ownsScroll = OWN_SCROLL_PATHS.some((rule) => rule.test(pathname));
   const mainRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
@@ -117,7 +127,12 @@ export function AppShell({ children }: { children: ReactNode }) {
     <NotificationsProvider>
       <div className="relative mx-auto flex h-dvh w-full max-w-2xl flex-col overflow-hidden">
         <Header user={user} />
-        <main ref={mainRef} className="flex-1 overflow-y-auto overscroll-contain pb-32">{children}</main>
+        <main
+          ref={mainRef}
+          className={`flex-1 overflow-y-auto overscroll-contain ${ownsScroll ? "" : "pb-32"}`}
+        >
+          {children}
+        </main>
         <BottomNav guest={guest} />
       </div>
     </NotificationsProvider>

@@ -12,6 +12,7 @@ import { InlineSpinner, SpinnerIcon } from "@/components/spinner";
 import { DotsHorizontalIcon, SendIcon } from "@/components/icons";
 import { VerifiedBadge } from "@/components/verified-badge";
 import { clockTime } from "@/lib/format";
+import { SharedPostCard } from "@/components/shared-post-card";
 import type { Message, Page, PublicUser } from "@/lib/types";
 
 type TypingEvent = { conversationId: string; userId: string; username: string; isTyping: boolean };
@@ -272,6 +273,8 @@ export function ChatThread({
       conversationId,
       senderId: myId ?? "",
       content,
+      sharedPostId: null,
+      sharedPost: null,
       clientNonce,
       createdAt: new Date().toISOString(),
       pending: true,
@@ -574,61 +577,108 @@ function MessageGroup({
             <span className="text-[11px] font-medium text-zinc-400">{sender.displayName}</span>
           </div>
         )}
-        <div className={`flex items-end gap-1 ${mine ? "flex-row" : "flex-row-reverse"}`}>
-          <div
-            className={`relative rounded-2xl px-3 py-2 text-sm leading-relaxed ${
-              mine
-                ? first.failed
-                  ? "border border-red-300 bg-red-50 text-red-600 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
-                  : first.pending
-                    ? "bg-zinc-300 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200"
-                    : "rounded-br-md bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
-                : "rounded-bl-md bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100"
-            }`}
-          >
-            {mine && (
-              <button
-                aria-label="Message options"
-                onClick={() => setMenuFor(menuFor === first.id ? null : first.id)}
-                className="absolute -left-5 top-1 grid h-5 w-5 place-items-center rounded-full text-zinc-300 hover:bg-zinc-100 hover:text-zinc-600 dark:text-zinc-600 dark:hover:bg-zinc-800"
-              >
-                ⋯
-              </button>
-            )}
-            <p className="whitespace-pre-wrap break-words">{first.content}</p>
-            <p className={`mt-0.5 flex items-center justify-end gap-1.5 text-right text-[10px] ${mine ? "text-zinc-300 dark:text-zinc-500" : "text-zinc-300 dark:text-zinc-500"}`}>
-              {first.pending ? (
-                <span className="flex items-center gap-1">
-                  <SpinnerIcon size={10} className="animate-spin text-zinc-300 dark:text-zinc-500" /> {clockTime(first.createdAt)}
-                </span>
-              ) : first.failed ? (
-                <span className="flex items-center gap-1.5 font-semibold text-red-500 dark:text-red-400">
-                  Not sent
-                  <button
-                    type="button"
-                    onClick={() => onRetry(first)}
-                    className="underline underline-offset-2 hover:opacity-80"
-                  >
-                    Retry
-                  </button>
-                </span>
-              ) : (
-                clockTime(first.createdAt)
-              )}
-            </p>
-            {mine && menuFor === first.id && (
-              <div className="absolute right-0 top-9 z-20 rounded-lg border border-zinc-200 bg-white p-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
-                <button
-                  onClick={() => onDelete(first)}
-                  className="rounded-md px-3 py-1.5 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-950/50"
-                >
-                  Delete
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
+        {/*
+         * Every message in the run is rendered, not just the first. Grouping is
+         * only a visual device — collapsing consecutive messages into a single
+         * bubble used to drop all but the first, which silently lost messages.
+         */}
+        {messages.map((message) => (
+          <Bubble
+            key={message.id}
+            message={message}
+            mine={mine}
+            menuFor={menuFor}
+            setMenuFor={setMenuFor}
+            onDelete={onDelete}
+            onRetry={onRetry}
+          />
+        ))}
       </div>
+    </div>
+  );
+}
+
+function Bubble({
+  message,
+  mine,
+  menuFor,
+  setMenuFor,
+  onDelete,
+  onRetry,
+}: {
+  message: Message;
+  mine: boolean;
+  menuFor: string | null;
+  setMenuFor: (value: string | null) => void;
+  onDelete: (message: Message) => void;
+  onRetry: (message: Message) => void;
+}) {
+  // A forwarded post stands on its own, so it gets its own surface below any
+  // note that came with it.
+  const bubbleText = message.content;
+
+  return (
+    <div className={`mb-1 flex items-end gap-1 ${mine ? "flex-row" : "flex-row-reverse"}`}>
+      {(bubbleText || message.failed || message.pending) && (
+        <div
+          className={`relative rounded-2xl px-3 py-2 text-sm leading-relaxed ${
+            mine
+              ? message.failed
+                ? "border border-red-300 bg-red-50 text-red-600 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
+                : message.pending
+                  ? "bg-zinc-300 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200"
+                  : "rounded-br-md bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+              : "rounded-bl-md bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100"
+          }`}
+        >
+          {mine && (
+            <button
+              aria-label="Message options"
+              onClick={() => setMenuFor(menuFor === message.id ? null : message.id)}
+              className="absolute -left-5 top-1 grid h-5 w-5 place-items-center rounded-full text-zinc-300 hover:bg-zinc-100 hover:text-zinc-600 dark:text-zinc-600 dark:hover:bg-zinc-800"
+            >
+              ⋯
+            </button>
+          )}
+          {bubbleText && <p className="whitespace-pre-wrap break-words">{bubbleText}</p>}
+          <p className="mt-0.5 flex items-center justify-end gap-1.5 text-right text-[10px] text-zinc-300 dark:text-zinc-500">
+            {message.pending ? (
+              <span className="flex items-center gap-1">
+                <SpinnerIcon size={10} className="animate-spin" /> {clockTime(message.createdAt)}
+              </span>
+            ) : message.failed ? (
+              <span className="flex items-center gap-1.5 font-semibold text-red-500 dark:text-red-400">
+                Not sent
+                <button
+                  type="button"
+                  onClick={() => onRetry(message)}
+                  className="underline underline-offset-2 hover:opacity-80"
+                >
+                  Retry
+                </button>
+              </span>
+            ) : (
+              clockTime(message.createdAt)
+            )}
+          </p>
+          {mine && menuFor === message.id && (
+            <div className="absolute right-0 top-9 z-20 rounded-lg border border-zinc-200 bg-white p-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+              <button
+                onClick={() => onDelete(message)}
+                className="rounded-md px-3 py-1.5 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-950/50"
+              >
+                Delete
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {message.sharedPost && (
+        <div className={bubbleText ? "" : "rounded-2xl"}>
+          <SharedPostCard post={message.sharedPost} />
+        </div>
+      )}
     </div>
   );
 }

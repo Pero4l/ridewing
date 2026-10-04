@@ -8,7 +8,13 @@ let currentToken: string | null = null;
 
 export type ChatSocket = Socket;
 
-/** Returns the connected socket, reconnecting with a new token if it changed. */
+/**
+ * Returns the connected socket, reconnecting with a new token if it changed.
+ *
+ * Throws when there is no token. Callers that may run before the session has been
+ * restored must not let that escape — `onSocketEvent` is the safe wrapper for
+ * anything that only wants to listen.
+ */
 export function getSocket(): Socket {
   const token = getAccessToken();
 
@@ -33,21 +39,44 @@ export function getSocket(): Socket {
 /**
  * Binds a listener to the live socket. When the socket instance is rebuilt (token
  * change) the listener is reattached automatically. Returns an unsubscribe fn.
+ *
+ * This must never throw. Subscribers mount at the top of the tree while the
+ * session is still being restored, so on a guest — or on any first paint before
+ * the boot refresh lands — there is no token and therefore no socket. Throwing
+ * there took the whole app shell down to the "This page couldn't load" screen, so
+ * instead the listener is parked and attached as soon as a session event arrives.
  */
 export function onSocketEvent<T = unknown>(event: string, handler: (payload: T) => void): () => void {
-  const attach = () => getSocket().on(event, handler);
-  attach();
+  let attachedTo: Socket | null = null;
+
+  const detach = () => {
+    attachedTo?.off(event, handler);
+    attachedTo = null;
+  };
+
+  const attach = () => {
+    if (attachedTo) return;
+    try {
+      const s = getSocket();
+      s.on(event, handler);
+      attachedTo = s;
+    } catch {
+      attachedTo = null;
+    }
+  };
 
   const onRebuild = () => {
     // socket.io keeps listeners across reconnects, but not across a brand-new
     // instance (token rotation), so re-attach then.
-    if (!socket?.hasListeners(event)) attach();
+    detach();
+    attach();
   };
 
+  attach();
   window.addEventListener("ridewing:session", onRebuild);
   return () => {
     window.removeEventListener("ridewing:session", onRebuild);
-    socket?.off(event, handler);
+    detach();
   };
 }
 

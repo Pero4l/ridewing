@@ -53,7 +53,13 @@ export default function PostDetailPage({ params }: { params: Promise<{ postId: s
         <EmptyState title="Post not available" description={error} />
       ) : post ? (
         <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
-          <PostCard post={post} viewer={user} onChanged={() => void reload()} />
+          {/*
+           * A post opened on its own — from a shared link, a profile grid, a
+           * forwarded DM — is a place people came to read it. So the caption,
+           * counts and comments are all present without a second tap; the feed
+           * keeps the thread collapsed.
+           */}
+          <PostCard post={post} viewer={user} onChanged={() => void reload()} defaultShowComments />
         </div>
       ) : null}
     </div>

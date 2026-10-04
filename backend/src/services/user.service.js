@@ -116,12 +116,79 @@ async function touchLastSeen(userId) {
   await User.update({ lastSeenAt: new Date() }, { where: { id: userId } });
 }
 
+/**
+ * The people a rider can message: everyone they follow and everyone who follows
+ * them, mutual connections first.
+ *
+ * This is what the share sheet searches. A rider forwarding a post wants a
+ * friend, not the whole directory — a two-way connection in either direction is
+ * the difference between "someone I know" and "a stranger who liked my photo".
+ * `q` narrows the result within that set, it never widens it, so the sheet cannot
+ * be used to look riders up by guessing prefixes.
+ */
+async function friends(viewerId, { q, limit } = {}) {
+  const pageSize = normalizeLimit(limit, 30);
+
+  const links = await Follow.findAll({
+    where: { [Op.or]: [{ followerId: viewerId }, { followingId: viewerId }] },
+    attributes: ['followerId', 'followingId'],
+  });
+
+  const iFollow = new Set();
+  const followsMe = new Set();
+  for (const link of links) {
+    if (link.followerId === viewerId) iFollow.add(link.followingId);
+    else followsMe.add(link.followerId);
+  }
+  const ids = [...new Set([...iFollow, ...followsMe])].filter((id) => id !== viewerId);
+  if (!ids.length) return [];
+
+  const where = { id: { [Op.in]: ids }, status: 'active' };
+  const term = String(q ?? '').trim();
+  if (term) {
+    const escaped = term.replace(/[%_\\]/g, '\\$&');
+    where[Op.or] = [
+      { username: { [Op.iLike]: `${escaped}%` } },
+      { displayName: { [Op.iLike]: `%${escaped}%` } },
+    ];
+  }
+
+  const rows = await User.findAll({ where, order: [['username', 'ASC']] });
+
+  // Rank in memory rather than in SQL: the candidate set is a rider's own
+  // connections (tens, not thousands), and sorting by two boolean columns needs
+  // an expression that is not worth the portability cost.
+  return rows
+    .map((user) => {
+      const mutual = iFollow.has(user.id) && followsMe.has(user.id);
+      return {
+        user,
+        mutual,
+        followsYou: followsMe.has(user.id),
+        youFollow: iFollow.has(user.id),
+      };
+    })
+    .sort((a, b) => {
+      if (a.mutual !== b.mutual) return a.mutual ? -1 : 1;
+      // Then by name, so the list does not reshuffle between searches.
+      return a.user.username.localeCompare(b.user.username);
+    })
+    .slice(0, pageSize)
+    .map(({ user, mutual, followsYou, youFollow }) => ({
+      ...user.toPublicJSON(),
+      isMutual: mutual,
+      followsYou,
+      viewerIsFollowing: youFollow,
+    }));
+}
+
 module.exports = {
   getById,
   getByUsername,
   getProfile,
   updateProfile,
   search,
+  friends,
   touchLastSeen,
   UPDATABLE_FIELDS,
 };
