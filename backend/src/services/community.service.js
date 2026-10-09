@@ -24,6 +24,9 @@ const {
 const ApiError = require('../utils/ApiError');
 const { uniqueSlug } = require('../utils/slug');
 const { normalizeLimit, decodeCursor, buildPage } = require('../utils/pagination');
+const afterCommit = require('../utils/afterCommit');
+const { evictUserFromRoom } = require('../sockets/emit');
+const { conversationRoom } = require('../sockets/rooms');
 const notificationService = require('./notification.service');
 const emailService = require('./email.service');
 const emailVerificationService = require('./emailVerification.service');
@@ -277,7 +280,7 @@ async function join(slug, userId, message) {
           transaction,
         });
 
-        transaction.afterCommit(() =>
+        afterCommit(transaction, () =>
           notificationService.createMany(
             reviewers.map((reviewer) => reviewer.userId),
             {
@@ -391,7 +394,7 @@ async function reviewJoinRequest(slug, actorId, requestId, decision) {
       }
     }
 
-    transaction.afterCommit(() =>
+    afterCommit(transaction, () =>
       notificationService.create({
         userId: request.userId,
         actorId,
@@ -450,6 +453,10 @@ async function leave(slug, userId) {
         where: { conversationId: conversation.id, userId },
         transaction,
       });
+      // Membership is only checked when a socket joins the room, so an
+      // already-connected socket would keep reading the thread after leaving.
+      // Evict once the removal is durable.
+      afterCommit(transaction, () => evictUserFromRoom(userId, conversationRoom(conversation.id)));
     }
 
     return { left: true };
@@ -540,6 +547,11 @@ async function removeMember(slug, actorId, targetUsername, { ban = false } = {})
         where: { conversationId: conversation.id, userId: target.id },
         transaction,
       });
+      // Same reasoning as leaving: a ban only changes the database, so the
+      // banned rider's live socket has to be pulled out of the room explicitly.
+      afterCommit(transaction, () =>
+        evictUserFromRoom(target.id, conversationRoom(conversation.id)),
+      );
     }
 
     return { userId: target.id, status: ban ? 'banned' : 'removed' };

@@ -1,0 +1,60 @@
+{
+  "expo": {
+    "name": "RideWing",
+    "slug": "ridewing",
+    "version": "1.0.0",
+    "scheme": "ridewing",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.ridewing.app",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "RideWing uses your microphone so you can talk to the other riders in your group.",
+        "NSPhotoLibraryUsageDescription": "RideWing needs access to your photos so you can attach pictures to posts.",
+        "NSPhotoLibraryAddUsageDescription": "RideWing needs permission to save photos you choose to share."
+      }
+    },
+    "android": {
+      "package": "com.ridewing.app",
+      "permissions": [
+        "RECORD_AUDIO"
+      ],
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "backgroundImage": "./assets/images/android-icon-background.png",
+        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "output": "static",
+      "favicon": "./assets/images/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#208AEF",
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 76
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "RideWing needs access to your photos so you can attach pictures to posts."
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
+}

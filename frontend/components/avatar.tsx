@@ -1,6 +1,8 @@
 "use client";
 
+import Image from "next/image";
 import type { ReactNode } from "react";
+
 import { initialsOf } from "@/lib/format";
 
 type AvatarProps = {
@@ -34,11 +36,14 @@ export function Avatar({ name, username, image, size = 40, className = "" }: Ava
 
   if (image) {
     return (
-      <img
+      <Image
         src={image}
         alt={username ?? name ?? ""}
         width={size}
         height={size}
+        // Sized for a 2x display; `sizes` keeps the browser from fetching the
+        // largest candidate for a 40px avatar in a dense list.
+        sizes={`${size * 2}px`}
         className={`rounded-full object-cover shrink-0 ${className}`}
         style={{ width: size, height: size }}
       />

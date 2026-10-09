@@ -27,6 +27,14 @@ function decodeCursor(cursor) {
   try {
     const parsed = JSON.parse(Buffer.from(String(cursor), 'base64url').toString('utf8'));
     if (!parsed || typeof parsed !== 'object') return null;
+    // Every caller does `new Date(decoded.createdAt)` and hands it to Postgres.
+    // An unparseable value becomes `Invalid Date`, which the driver rejects with
+    // an opaque 500 rather than a 400 — so it is rejected here instead, at the
+    // one place every cursor passes through.
+    if (parsed.createdAt !== undefined) {
+      const createdAt = new Date(parsed.createdAt);
+      if (Number.isNaN(createdAt.getTime())) return null;
+    }
     return parsed;
   } catch {
     return null; // A malformed cursor is treated as "start from the beginning".

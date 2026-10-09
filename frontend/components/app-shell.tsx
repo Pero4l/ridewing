@@ -76,6 +76,18 @@ function isPublicPath(pathname: string): boolean {
  */
 const OWN_SCROLL_PATHS: RegExp[] = [/^\/app\/reels$/];
 
+/**
+ * Pages that own the whole viewport and lay themselves out around it.
+ *
+ * The conversation thread is deliberately chrome-free — no header, no bottom
+ * nav, and a composer pinned to the bottom of the screen. It lives in a route
+ * group *inside* /app, so this layout wraps it too; without this it got a
+ * header, a bottom nav and `pb-32`, and its own `h-dvh` scroll container nested
+ * inside the shell's scrolling <main> — a double scroller with the composer
+ * hidden behind the floating nav.
+ */
+const FULL_BLEED_PATHS: RegExp[] = [/^\/app\/messages\/[^/]+$/];
+
 export function AppShell({ children }: { children: ReactNode }) {
   const { status, user } = useSession();
   const router = useRouter();
@@ -83,6 +95,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const guest = status === "guest";
   const allowed = !guest || isPublicPath(pathname);
   const ownsScroll = OWN_SCROLL_PATHS.some((rule) => rule.test(pathname));
+  const fullBleed = FULL_BLEED_PATHS.some((rule) => rule.test(pathname));
   const mainRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
@@ -125,16 +138,20 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <NotificationsProvider>
-      <div className="relative mx-auto flex h-dvh w-full max-w-2xl flex-col overflow-hidden">
-        <Header user={user} />
-        <main
-          ref={mainRef}
-          className={`flex-1 overflow-y-auto overscroll-contain ${ownsScroll ? "" : "pb-32"}`}
-        >
-          {children}
-        </main>
-        <BottomNav guest={guest} />
-      </div>
+      {fullBleed ? (
+        <div className="mx-auto h-dvh w-full max-w-2xl overflow-hidden">{children}</div>
+      ) : (
+        <div className="relative mx-auto flex h-dvh w-full max-w-2xl flex-col overflow-hidden">
+          <Header user={user} />
+          <main
+            ref={mainRef}
+            className={`flex-1 overflow-y-auto overscroll-contain ${ownsScroll ? "" : "pb-32"}`}
+          >
+            {children}
+          </main>
+          <BottomNav guest={guest} />
+        </div>
+      )}
     </NotificationsProvider>
   );
 }

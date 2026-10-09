@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useCallback, useEffect, useMemo, useState } from "react";
+import { use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
@@ -53,17 +53,27 @@ export default function ProfilePage({ params }: { params: Promise<{ username: st
     }
   }, [username]);
 
+  // A request ticket, so a slow response for a tab the rider has already left
+  // cannot land after the newer one and overwrite it. Rapidly tapping
+  // posts -> reposts -> tagged used to leave whichever response happened to
+  // arrive last, which was frequently the wrong tab.
+  const postRequest = useRef(0);
+  const rosterRequest = useRef(0);
+
   const loadPosts = useCallback(
     async (tab: GalleryTab) => {
+      const ticket = ++postRequest.current;
       setPostsLoading(true);
       setTabError(null);
       try {
         const page = await api.get<Page<Post>>(`/api/users/${username}/posts?tab=${tab}`);
+        if (ticket !== postRequest.current) return;
         setPosts(page.items);
       } catch (error) {
+        if (ticket !== postRequest.current) return;
         setTabError(error instanceof ApiError ? error.message : "Could not load posts");
       } finally {
-        setPostsLoading(false);
+        if (ticket === postRequest.current) setPostsLoading(false);
       }
     },
     [username],
@@ -97,10 +107,13 @@ export default function ProfilePage({ params }: { params: Promise<{ username: st
       setCountTab(next);
       setPosts([]);
       setTabError(null);
+      const ticket = ++rosterRequest.current;
       try {
         const page = await api.get<Page<PublicUser>>(`/api/users/${username}/${next}`);
+        if (ticket !== rosterRequest.current) return;
         setRoster(page.items);
       } catch (error) {
+        if (ticket !== rosterRequest.current) return;
         setTabError(error instanceof ApiError ? error.message : "Could not load list");
       }
     },

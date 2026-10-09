@@ -5,6 +5,9 @@ node_modules/
 .env
 .env.local
 .env.*.local
+# Any other .env.<name> variant is a real secret too (production, staging, ...).
+.env.*
+# ...but the committed template is the exception, and must stay *last* so it wins.
 !.env.example
 
 # Logs
@@ -18,4 +21,3 @@ coverage/
 # OS / editor
 .DS_Store
 *.swp
-.env.example

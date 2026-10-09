@@ -45,7 +45,7 @@ async function hashPassword(plain) {
  * Creates an account. Uniqueness is enforced by database constraints — we do not
  * pre-check with a SELECT, which would race under concurrent signups.
  */
-async function register({ username, email, phone, password, displayName, bio, bikeInfo }, { userAgent } = {}, options = {}) {
+async function register({ username, email, phone, password, displayName, bio, bikeInfo }, { userAgent, deviceId } = {}, options = {}) {
   const passwordHash = await hashPassword(password);
 
   const result = await sequelize.transaction(async (transaction) => {
@@ -63,7 +63,7 @@ async function register({ username, email, phone, password, displayName, bio, bi
       { transaction },
     );
 
-    const { rawToken } = await tokenService.issueRefreshToken(user.id, { userAgent, transaction });
+    const { rawToken } = await tokenService.issueRefreshToken(user.id, { userAgent, deviceId, transaction });
     return { user, refreshToken: rawToken };
   });
 
@@ -130,7 +130,7 @@ async function findByIdentifier(identifier) {
   });
 }
 
-async function login({ identifier, password }, { userAgent } = {}) {
+async function login({ identifier, password }, { userAgent, deviceId } = {}) {
   const user = await findByIdentifier(identifier);
 
   // Always run a comparison so timing does not distinguish the two failure modes.
@@ -140,7 +140,7 @@ async function login({ identifier, password }, { userAgent } = {}) {
     throw ApiError.unauthorized('Incorrect credentials', { code: 'INVALID_CREDENTIALS' });
   }
 
-  const { rawToken } = await tokenService.issueRefreshToken(user.id, { userAgent });
+  const { rawToken } = await tokenService.issueRefreshToken(user.id, { userAgent, deviceId });
   await user.update({ lastSeenAt: new Date() });
 
   return {
@@ -151,8 +151,8 @@ async function login({ identifier, password }, { userAgent } = {}) {
 }
 
 /** Rotates the refresh cookie and mints a matching access token. */
-async function refresh(rawRefreshToken, { userAgent } = {}) {
-  const { userId, rawToken } = await tokenService.rotateRefreshToken(rawRefreshToken, { userAgent });
+async function refresh(rawRefreshToken, { userAgent, deviceId } = {}) {
+  const { userId, rawToken } = await tokenService.rotateRefreshToken(rawRefreshToken, { userAgent, deviceId });
 
   const user = await User.findByPk(userId);
   if (!user) throw ApiError.unauthorized('Account no longer exists');
@@ -190,14 +190,14 @@ async function changePassword(userId, { currentPassword, newPassword }) {
 /** Creates an admin account. Only succeeds when the caller presents a token that
  * matches the ADMIN_REGISTER_TOKEN secret and the token is configured at all —
  * otherwise we 404 so the endpoint is indistinguishable from a missing route. */
-async function registerAdmin(payload, { adminToken, userAgent } = {}) {
+async function registerAdmin(payload, { adminToken, userAgent, deviceId } = {}) {
   if (!env.admin.registerToken || !adminToken) {
     throw ApiError.notFound('Not found');
   }
   if (!secretsMatch(adminToken, env.admin.registerToken)) {
     throw ApiError.unauthorized('Invalid admin registration token');
   }
-  return register(payload, { userAgent }, { role: 'admin' });
+  return register(payload, { userAgent, deviceId }, { role: 'admin' });
 }
 
 module.exports = {

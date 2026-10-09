@@ -193,7 +193,12 @@ export class VoiceRoom {
   /** Reflects a creator-driven voice mode change locally. */
   reportVoiceMode(mode: "ptt" | "open") {
     this.voiceMode = mode;
-    if (!this.muted) this.setTransmitGate(true);
+    // Entering PTT must close the gate. Opening the gate whenever the rider is
+    // unmuted left their microphone broadcasting after the ride switched modes —
+    // the UI showed "hold to talk" while they were already transmitting, with no
+    // indication to either party. PTT only opens while the button is held.
+    if (mode === "open" && !this.muted) this.setTransmitGate(true);
+    else this.setTransmitGate(false);
   }
 
   // ── setup ────────────────────────────────────────────────────────────────
@@ -309,7 +314,10 @@ export class VoiceRoom {
       const { voiceMode } = payload as { id: string; voiceMode: "ptt" | "open" };
       this.voiceMode = voiceMode;
       this.callbacks.onVoiceModeChange(voiceMode);
-      if (!this.muted) this.setTransmitGate(true);
+      // Same reasoning as reportVoiceMode: a switch to PTT has to mute, or the
+      // rider keeps broadcasting with no visible indication.
+      if (voiceMode === "open" && !this.muted) this.setTransmitGate(true);
+      else this.setTransmitGate(false);
     });
 
     this.on("ride:voice-state", (payload: unknown) => {
@@ -452,7 +460,10 @@ export class VoiceRoom {
         this.publish();
       }
       if (pc.connectionState === "failed") {
-        pc.restartIce?.();
+        // A `failed` connection cannot be recovered by restartIce — that only
+        // flags a live connection to renegotiate. Tearing down and re-dialling
+        // is the real recovery, so the restart call (which the close() on the
+        // next line cancelled) is gone rather than pretending to work.
         pc.close();
         this.peers.delete(socketId);
         // Retry shortly if we were the initiator — the mesh should self-heal.
@@ -535,6 +546,11 @@ export class VoiceRoom {
           void this.negotiate(fromSocketId);
         }
       }
+      // Candidates buffered while there was no remote description can only be
+      // applied once it is set. Without this drain they sat in the queue until
+      // the *next* candidate arrived, so a peer that sent its candidates eagerly
+      // never got them applied and the connection stayed half-open.
+      this.drainCandidates();
     } catch {
       // A racing or stale offer; the peer will send another.
     }
@@ -545,13 +561,20 @@ export class VoiceRoom {
     candidate: RTCIceCandidateInit;
   }) {
     const pc = this.peers.get(fromSocketId);
-    if (!pc) return;
+    // The peer connection may not exist yet — an offer is explicitly allowed to
+    // arrive before the roster does, and candidates race it the same way. Queue
+    // it rather than dropping it: a dropped candidate is a route never tried, so
+    // ICE can stall and the call never connects.
+    if (!pc) {
+      this.candidatesToQueue.push({ fromSocketId, candidate });
+      return;
+    }
     try {
       if (pc.remoteDescription) await pc.addIceCandidate(candidate);
       else this.candidatesToQueue.push({ fromSocketId, candidate });
       this.drainCandidates();
     } catch {
-      // Candidate arrived before the remote description; ignore.
+      // Candidate arrived before the remote description; keep it queued.
     }
   }
 
@@ -561,9 +584,16 @@ export class VoiceRoom {
 
   private drainCandidates() {
     if (!this.candidatesToQueue.length) return;
-    for (const { fromSocketId, candidate } of this.candidatesToQueue.splice(0)) {
+    // Re-queue survivors in a second array rather than splicing in place, so a
+    // candidate whose peer is not ready is kept instead of being consumed.
+    const pending = this.candidatesToQueue;
+    this.candidatesToQueue = [];
+    for (const { fromSocketId, candidate } of pending) {
       const pc = this.peers.get(fromSocketId);
-      if (!pc) continue;
+      if (!pc) {
+        this.candidatesToQueue.push({ fromSocketId, candidate });
+        continue;
+      }
       if (!pc.remoteDescription) {
         this.candidatesToQueue.push({ fromSocketId, candidate });
         continue;

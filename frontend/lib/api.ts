@@ -40,6 +40,27 @@ export function getAccessToken() {
   return accessToken;
 }
 
+// Stable per-browser id used to bind refresh-token rotation to this device.
+// The backend revokes the whole token family if a rotated cookie is replayed
+// from a different device, so this must survive reloads but not be guessable.
+const DEVICE_ID_KEY = "ridewing:device-id";
+
+function getDeviceId(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    let id = window.localStorage.getItem(DEVICE_ID_KEY);
+    if (!id) {
+      const bytes = new Uint8Array(16);
+      window.crypto.getRandomValues(bytes);
+      id = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+      window.localStorage.setItem(DEVICE_ID_KEY, id);
+    }
+    return id;
+  } catch {
+    return null;
+  }
+}
+
 export class ApiError extends Error {
   status: number;
   code?: string;
@@ -112,6 +133,8 @@ async function request<T>(path: string, { method = "GET", body, skipAuth = false
 
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (accessToken && !skipAuth) headers.Authorization = `Bearer ${accessToken}`;
+  const deviceId = getDeviceId();
+  if (deviceId) headers["X-Device-Id"] = deviceId;
 
   const response = await fetch(path, {
     method,
@@ -122,7 +145,12 @@ async function request<T>(path: string, { method = "GET", body, skipAuth = false
 
   if (response.status === 401 && accessToken && !skipAuth && path !== "/api/auth/refresh") {
     const refetched = await refreshSession();
-    if (refetched) return request<T>(path, { method, body, skipAuth });
+    // `skipAuth` must stay false here. The retry has to carry the *new* bearer
+    // token; passing skipAuth sent the request with no Authorization header at
+    // all, so it 401'd again and left the app permanently signed-in-but-dead.
+    // It cannot loop: this branch is only reached when a token was present, and
+    // coreRefresh only reports failure (no retry) once the server has refused.
+    if (refetched) return request<T>(path, { method, body });
   }
 
   return parseResponse<T>(response);
@@ -210,24 +238,41 @@ export async function refreshSessionGentle(): Promise<boolean> {
   return refreshLock();
 }
 
-export async function postLogin(identifier: string, password: string) {
-  const session = await request<ConnectedUser>("/api/auth/login", {
-    method: "POST",
-    body: { identifier, password },
-    skipAuth: true,
-  });
+/**
+ * Announces a new session so the socket layer can rebuild.
+ *
+ * Signing in and registering must fire this as well as refresh. The socket
+ * subscribes to it to re-bind listeners, but only the refresh path dispatched
+ * it — so after sign out -> sign in within the same tab, every listener stayed
+ * bound to the old, disconnected socket: unread badges froze, the message list
+ * stopped updating, and nothing recovered until a full reload.
+ */
+function announceSession(session: ConnectedUser) {
   setAccessToken(session.accessToken);
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("ridewing:session", { detail: session }));
+  }
   return session;
 }
 
+export async function postLogin(identifier: string, password: string) {
+  return announceSession(
+    await request<ConnectedUser>("/api/auth/login", {
+      method: "POST",
+      body: { identifier, password },
+      skipAuth: true,
+    }),
+  );
+}
+
 export async function postRegister(body: Record<string, unknown>) {
-  const session = await request<ConnectedUser>("/api/auth/register", {
-    method: "POST",
-    body,
-    skipAuth: true,
-  });
-  setAccessToken(session.accessToken);
-  return session;
+  return announceSession(
+    await request<ConnectedUser>("/api/auth/register", {
+      method: "POST",
+      body,
+      skipAuth: true,
+    }),
+  );
 }
 
 export async function postLogout() {

@@ -3,7 +3,7 @@
 const asyncHandler = require('../utils/asyncHandler');
 const conversationService = require('../services/conversation.service');
 const messageService = require('../services/message.service');
-const { emitToConversation, emitToUser } = require('../sockets/emit');
+const { emitToConversation, emitMessageNew } = require('../sockets/emit');
 
 const listConversations = asyncHandler(async (req, res) => {
   const conversations = await conversationService.listForUser(req.user.id);
@@ -45,15 +45,11 @@ const sendMessage = asyncHandler(async (req, res) => {
   );
 
   if (!duplicate) {
-    const payload = message.toJSONSafe();
-    emitToConversation(message.conversationId, 'message:new', payload);
-
-    // Same fan-out as the socket path: members who have not joined the thread
-    // room still need their list preview to move.
+    // Same fan-out as the socket path, via the same helper so the two cannot
+    // drift: members who have not joined the thread room still need their list
+    // preview to move, and members who *have* must not get it twice.
     const members = await conversationService.memberIds(message.conversationId);
-    for (const memberId of new Set(members)) {
-      emitToUser(memberId, 'message:new', payload);
-    }
+    await emitMessageNew(message.conversationId, message.toJSONSafe(), members);
   }
 
   res.status(duplicate ? 200 : 201).json({ message: message.toJSONSafe(), duplicate });

@@ -7,8 +7,8 @@
  * are opaque 48-byte random strings delivered in an httpOnly cookie; only their
  * SHA-256 hash is stored, and each use rotates them. Presenting an already-rotated
  * token normally means it leaked — except when two tabs race a rotation with the
- * same cookie, which is a legit case. A same-browser replay walks the replacement
- * chain forward to the live token; a replay from a different browser agent is
+ * same cookie, which is a legit case. A same-device replay walks the replacement
+ * chain forward to the live token; a replay from a different or unbound device is
  * treated as theft and revokes the entire family.
  */
 
@@ -51,7 +51,7 @@ function refreshExpiry() {
   return new Date(Date.now() + env.auth.refreshTokenTtlDays * 24 * 60 * 60 * 1000);
 }
 
-async function issueRefreshToken(userId, { userAgent, transaction } = {}) {
+async function issueRefreshToken(userId, { userAgent, deviceId, transaction } = {}) {
   const rawToken = crypto.randomBytes(48).toString('base64url');
   const record = await RefreshToken.create(
     {
@@ -59,10 +59,17 @@ async function issueRefreshToken(userId, { userAgent, transaction } = {}) {
       tokenHash: hashToken(rawToken),
       expiresAt: refreshExpiry(),
       userAgent: userAgent ? String(userAgent).slice(0, 255) : null,
+      deviceId: normalizeDeviceId(deviceId),
     },
     { transaction },
   );
   return { rawToken, record };
+}
+
+/** Client-supplied and untrusted, so constrain its shape before storing it. */
+function normalizeDeviceId(deviceId) {
+  const value = deviceId ? String(deviceId).trim() : '';
+  return /^[A-Za-z0-9_-]{8,64}$/.test(value) ? value : null;
 }
 
 async function findActive(rawToken) {
@@ -77,9 +84,30 @@ async function findActive(rawToken) {
  * Runs in a transaction with a row lock so two concurrent refreshes from the same
  * tab cannot both succeed and orphan a token.
  */
-async function rotateRefreshToken(rawToken, { userAgent } = {}) {
+async function rotateRefreshToken(rawToken, { userAgent, deviceId } = {}) {
   if (!rawToken) throw ApiError.unauthorized('Refresh token missing');
 
+  // Set when we decide this is theft. The family revocation has to happen
+  // *outside* the transaction below, because throwing rolls that transaction
+  // back — revoking inside it and then throwing silently undoes the revocation,
+  // which is precisely the case the control exists for.
+  let compromisedUserId = null;
+
+  try {
+    return await rotateInTransaction(rawToken, { userAgent, deviceId }, (userId) => {
+      compromisedUserId = userId;
+    });
+  } catch (error) {
+    if (compromisedUserId) {
+      await revokeAllForUser(compromisedUserId).catch((err) => {
+        logger.error({ err, userId: compromisedUserId }, 'failed to revoke token family after reuse');
+      });
+    }
+    throw error;
+  }
+}
+
+async function rotateInTransaction(rawToken, { userAgent, deviceId }, onTheft) {
   return sequelize.transaction(async (transaction) => {
     let cursor = await RefreshToken.findOne({
       where: { tokenHash: hashToken(rawToken) },
@@ -92,30 +120,30 @@ async function rotateRefreshToken(rawToken, { userAgent } = {}) {
     // A revoked token means it was already rotated. Parallel tabs presenting the
     // same cookie mid-rotation is a legitimate race — follow the replacement
     // chain forward (bounded) to the live token and rotate it, so a reload + tab
-    // restore storm converges instead of ending every session. A replay from a
-    // different browser agent means the cookie left this browser: an active theft
-    // — revoke the whole family.
+    // restore storm converges instead of ending every session.
+    //
+    // A replay from a *different device* means the cookie left that device: an
+    // active theft — revoke the whole family. The comparison fails closed: if
+    // either side is unbound (an older token, or a client that sent no
+    // `X-Device-Id`) the family is revoked rather than trusted.
+    const selfDeviceId = normalizeDeviceId(deviceId);
     let hops = 0;
     while (cursor.revokedAt) {
       if (hops >= 8) {
         logger.warn({ userId: cursor.userId }, 'refresh token chain too deep — revoking family');
-        await RefreshToken.update(
-          { revokedAt: new Date() },
-          { where: { userId: cursor.userId, revokedAt: null }, transaction },
-        );
+        onTheft(cursor.userId);
         throw ApiError.unauthorized('Session revoked, please sign in again');
       }
 
-      const selfUserAgent = String(userAgent ?? '').slice(0, 255);
-      const issuerUserAgent = cursor.userAgent ? String(cursor.userAgent).slice(0, 255) : null;
-      const sameBrowser = !issuerUserAgent || !selfUserAgent || issuerUserAgent === selfUserAgent;
+      const boundDevice = normalizeDeviceId(cursor.deviceId);
+      const sameDevice = Boolean(boundDevice) && boundDevice === selfDeviceId;
 
-      if (!sameBrowser) {
-        logger.warn({ userId: cursor.userId }, 'refresh token reuse from a different browser — revoking family');
-        await RefreshToken.update(
-          { revokedAt: new Date() },
-          { where: { userId: cursor.userId, revokedAt: null }, transaction },
+      if (!sameDevice) {
+        logger.warn(
+          { userId: cursor.userId, bound: Boolean(boundDevice), presented: Boolean(selfDeviceId) },
+          'refresh token reuse from a different or unbound device — revoking family',
         );
+        onTheft(cursor.userId);
         throw ApiError.unauthorized('Session revoked, please sign in again');
       }
 
@@ -138,6 +166,7 @@ async function rotateRefreshToken(rawToken, { userAgent } = {}) {
 
     const { rawToken: nextRaw, record: nextRecord } = await issueRefreshToken(cursor.userId, {
       userAgent,
+      deviceId,
       transaction,
     });
 
@@ -174,6 +203,7 @@ async function purgeExpired() {
 
 module.exports = {
   hashToken,
+  normalizeDeviceId,
   signAccessToken,
   verifyAccessToken,
   issueRefreshToken,

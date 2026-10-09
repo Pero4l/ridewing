@@ -35,10 +35,21 @@ module.exports = async function socketAuth(socket, next) {
     const user = await User.findByPk(payload.sub);
     if (!user) return next(new Error('UNAUTHORIZED'));
 
+    // A socket outlives a suspension, so it has to apply the same gate the HTTP
+    // middleware does. Without this an ejected rider keeps every room it joined.
+    if (user.status === 'suspended') return next(new Error('UNAUTHORIZED'));
+
     socket.data.userId = user.id;
     socket.data.username = user.username;
     // Rooms this socket has been authorized into, so leave/rejoin needs no re-query.
-    socket.data.rides = new Set();
+    // On connection-state recovery Socket.IO restores the socket's rooms but this
+    // middleware re-runs, so rebuild the set from the rooms it actually kept —
+    // otherwise `disconnecting` iterates nothing and `leave` no-ops.
+    socket.data.rides = new Set(
+      [...socket.rooms]
+        .filter((room) => room.startsWith('ride:'))
+        .map((room) => room.slice('ride:'.length)),
+    );
 
     return next();
   } catch (error) {

@@ -421,9 +421,31 @@ async function relationsWithCreator(ride, viewerId) {
   };
 }
 
-/** Ride detail including the viewer's relation to the creator. */
+/**
+ * Ride detail including the viewer's relation to the creator.
+ *
+ * Gated the same way `listJoinable` is: the viewer must be the creator, an active
+ * participant, or follow the creator. Without this, any authenticated rider who
+ * obtained a ride UUID could read the roster — and `inviteCode`, which then works
+ * at `/api/rides/join` for somebody with no social relation to the creator. 404
+ * rather than 403, so a stranger cannot confirm the ride exists.
+ */
 async function getForViewer(rideId, viewerId) {
   const ride = await getById(rideId);
+
+  const allowed =
+    ride.creatorId === viewerId ||
+    (await RideParticipant.count({
+      where: { rideSessionId: ride.id, userId: viewerId, status: 'joined' },
+    })) > 0;
+
+  if (!allowed) {
+    const followed = await Follow.count({
+      where: { followerId: viewerId, followingId: ride.creatorId },
+    });
+    if (followed === 0) throw ApiError.notFound('Ride not found');
+  }
+
   const relation = await relationsWithCreator(ride, viewerId);
   return { ride, relation };
 }

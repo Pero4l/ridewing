@@ -44,6 +44,7 @@ function clearRefreshCookie(res) {
 const register = asyncHandler(async (req, res) => {
   const { user, accessToken, refreshToken } = await authService.register(req.body, {
     userAgent: req.headers['user-agent'],
+    deviceId: req.headers['x-device-id'],
   });
 
   setRefreshCookie(res, refreshToken);
@@ -54,6 +55,7 @@ const registerAdmin = asyncHandler(async (req, res) => {
   const { user, accessToken, refreshToken } = await authService.registerAdmin(req.body, {
     adminToken: req.header('X-Admin-Token'),
     userAgent: req.headers['user-agent'],
+    deviceId: req.headers['x-device-id'],
   });
 
   setRefreshCookie(res, refreshToken);
@@ -63,6 +65,7 @@ const registerAdmin = asyncHandler(async (req, res) => {
 const login = asyncHandler(async (req, res) => {
   const { user, accessToken, refreshToken } = await authService.login(req.body, {
     userAgent: req.headers['user-agent'],
+    deviceId: req.headers['x-device-id'],
   });
 
   setRefreshCookie(res, refreshToken);
@@ -72,7 +75,7 @@ const login = asyncHandler(async (req, res) => {
 const refresh = asyncHandler(async (req, res) => {
   const { user, accessToken, refreshToken } = await authService.refresh(
     req.cookies?.[REFRESH_COOKIE],
-    { userAgent: req.headers['user-agent'] },
+    { userAgent: req.headers['user-agent'], deviceId: req.headers['x-device-id'] },
   );
 
   setRefreshCookie(res, refreshToken);

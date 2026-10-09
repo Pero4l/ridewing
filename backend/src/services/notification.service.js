@@ -21,6 +21,13 @@ const { normalizeLimit, decodeCursor, buildPage } = require('../utils/pagination
 // dependency on Socket.IO and stays unit-testable.
 let emitter = null;
 
+/**
+ * The only notification types worth emailing a human about: a rider in distress
+ * on a live ride, and a support ticket. Everything else is social activity that
+ * the in-app notification row already covers.
+ */
+const ADMIN_ALERT_TYPES = new Set(['ride_signal', 'support_ticket']);
+
 function setEmitter(fn) {
   emitter = fn;
 }
@@ -60,7 +67,11 @@ async function create({ userId, actorId = null, type, entityType = null, entityI
 
   // Admin notifications fire on their own Brevo seam — fire-and-forget, so a
   // failed (or unconfigured) transactional send never touches the notification row.
-  if (env.email.enabled && env.admin.emails.length) {
+  //
+  // Restricted to events a human actually needs to see. Emailing on *every*
+  // notification turned a single like into an outbound API call, so a popular post
+  // or a scripted like-storm became a mail flood against a third-party quota.
+  if (ADMIN_ALERT_TYPES.has(type) && env.email.enabled && env.admin.emails.length) {
     queueMicrotask(async () => {
       try {
         await emailService.sendTransactional({

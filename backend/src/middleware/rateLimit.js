@@ -5,8 +5,13 @@
  *
  * Credential endpoints are limited far more aggressively than reads. Login is
  * keyed on IP *and* the submitted identifier, so one attacker cannot lock every
- * account from a single address, and distributed guessing against one account
- * still trips the per-account counter.
+ * account from a single address.
+ *
+ * The IP dimension alone is not enough: `ip|identifier` produces an independent
+ * bucket per source address, so an attacker with 50 addresses gets 50x the budget
+ * against one account, and nothing anywhere aggregates on that account. That is
+ * what `loginPerAccountLimiter` is for — an identifier-only limiter, so the pair
+ * is what actually bounds guessing.
  */
 
 const rateLimit = require('express-rate-limit');
@@ -35,11 +40,35 @@ const loginLimiter = rateLimit({
   handler: handler('Too many sign-in attempts. Please wait and try again.'),
 });
 
+/** Bounds guessing against a single account no matter how many IPs are used. */
+const loginPerAccountLimiter = rateLimit({
+  ...base,
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  keyGenerator: (req) =>
+    `acct:${String(req.body?.identifier || '').toLowerCase().slice(0, 120)}`,
+  handler: handler('Too many sign-in attempts for this account. Please wait and try again.'),
+});
+
 const registerLimiter = rateLimit({
   ...base,
   windowMs: 60 * 60 * 1000,
   limit: 5,
   handler: handler('Too many accounts created from this address. Please try later.'),
+});
+
+/**
+ * Keyed on the target address alone. Without this, rotating IPs bypasses the
+ * IP-keyed limiter and one attacker can drive unlimited reset emails at a known
+ * victim — inbox flooding, Brevo quota burn, and sender-reputation damage.
+ */
+const passwordResetPerAccountLimiter = rateLimit({
+  ...base,
+  windowMs: 60 * 60 * 1000,
+  limit: 3,
+  keyGenerator: (req) =>
+    `acct:${String(req.body?.email || '').toLowerCase().slice(0, 120)}`,
+  handler: handler('Too many password reset requests for this account. Please try again later.'),
 });
 
 const refreshLimiter = rateLimit({
@@ -86,9 +115,11 @@ const globalLimiter = rateLimit({
 
 module.exports = {
   loginLimiter,
+  loginPerAccountLimiter,
   registerLimiter,
   refreshLimiter,
   passwordResetLimiter,
+  passwordResetPerAccountLimiter,
   messageLimiter,
   writeLimiter,
   globalLimiter,

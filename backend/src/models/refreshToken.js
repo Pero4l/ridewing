@@ -6,6 +6,7 @@
  * Only a SHA-256 hash of the token is stored, so a database leak does not hand an
  * attacker usable sessions. Rotation is tracked via `replacedByTokenId`, which lets
  * us detect reuse of an already-rotated token and revoke the whole family.
+ * `deviceId` binds rotation to the client device and is compared fail-closed.
  */
 module.exports = (sequelize, DataTypes) => {
   const RefreshToken = sequelize.define(
@@ -18,6 +19,7 @@ module.exports = (sequelize, DataTypes) => {
       revokedAt: { type: DataTypes.DATE, allowNull: true },
       replacedByTokenId: { type: DataTypes.UUID, allowNull: true },
       userAgent: { type: DataTypes.STRING(255), allowNull: true },
+      deviceId: { type: DataTypes.STRING(64), allowNull: true },
     },
     {
       tableName: 'refresh_tokens',
@@ -25,6 +27,7 @@ module.exports = (sequelize, DataTypes) => {
         { unique: true, fields: ['token_hash'] },
         { fields: ['user_id'] },
         { fields: ['expires_at'] },
+        { fields: ['device_id'] },
       ],
     },
   );

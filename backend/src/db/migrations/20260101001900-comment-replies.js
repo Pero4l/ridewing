@@ -26,9 +26,15 @@ module.exports = {
   },
 
   async down(queryInterface) {
-    await queryInterface.removeIndex('post_comments', ['post_id', 'parent_id', 'created_at']);
-    await queryInterface.removeConstraint('post_comments', 'post_comments_parent_id_fkey');
-    await queryInterface.removeColumn('post_comments', 'parent_id');
+    // `up` is guarded so it is safe to re-run, so `down` has to be guarded the
+    // same way — otherwise rolling back a database where `up` no-opped throws
+    // on the first removeIndex.
+    const table = await queryInterface.describeTable('post_comments');
+    if (table.parent_id) {
+      await queryInterface.removeIndex('post_comments', ['post_id', 'parent_id', 'created_at']);
+      await queryInterface.removeConstraint('post_comments', 'post_comments_parent_id_fkey');
+      await queryInterface.removeColumn('post_comments', 'parent_id');
+    }
     // PostgreSQL cannot remove enum values; the migration is intentionally not
     // reversible. New values never break old rows.
   },

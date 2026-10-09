@@ -1,6 +1,13 @@
 "use client";
 
-import { createContext, useCallback, useContext, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import { CheckIcon, InfoIcon, XIcon } from "./icons";
 
 type ToastKind = "success" | "error" | "info";
@@ -41,11 +48,18 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     [dismiss],
   );
 
-  const value: ToastContextValue = {
-    toast,
-    success: (message) => toast(message, "success"),
-    error: (message) => toast(message, "error"),
-  };
+  // Memoized because consumers put `toast` in effect dependency lists (the
+  // comment thread re-fetches on it). A fresh object each render meant every
+  // toast fired anywhere in the app re-ran those effects and re-rendered every
+  // consumer.
+  const value = useMemo<ToastContextValue>(
+    () => ({
+      toast,
+      success: (message) => toast(message, "success"),
+      error: (message) => toast(message, "error"),
+    }),
+    [toast],
+  );
 
   return (
     <ToastContext.Provider value={value}>

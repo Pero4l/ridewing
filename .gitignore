@@ -1,6 +1,47 @@
-# Production runtime data — never commit.
-deploy/.env
-deploy/data/
-deploy/backups/
-deploy/runtime/
-deploy
+# Dependencies — every package is installed independently (no workspace hoisting).
+node_modules/
+
+# Secrets. Each package has its own .gitignore too; this is the backstop, and
+# `!.env.example` must stay last so the committed templates still win.
+.env
+.env.*
+!.env.example
+
+# Build output
+.next/
+out/
+dist/
+build/
+*.tsbuildinfo
+
+# Generated / machine-specific
+frontend/.cert/
+*.pem
+*.key
+mobile/.expo/
+.expo/
+
+# Test & coverage output
+coverage/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-error.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Local agent/tooling state
+.claude/settings.local.json
+CONTRIBUTING.md
+LICENSE
+package.json
+README.md
+.github

@@ -4,7 +4,15 @@ const express = require('express');
 
 const validate = require('../middleware/validate');
 const { requireAuth } = require('../middleware/auth');
-const { loginLimiter, registerLimiter, refreshLimiter, passwordResetLimiter, writeLimiter } = require('../middleware/rateLimit');
+const {
+  loginLimiter,
+  loginPerAccountLimiter,
+  registerLimiter,
+  refreshLimiter,
+  passwordResetLimiter,
+  passwordResetPerAccountLimiter,
+  writeLimiter,
+} = require('../middleware/rateLimit');
 const authController = require('../controllers/auth.controller');
 const emailVerificationController = require('../controllers/emailVerification.controller');
 const authValidator = require('../validators/auth.validator');
@@ -28,7 +36,13 @@ router.post(
   authController.register,
 );
 
-router.post('/login', loginLimiter, validate({ body: authValidator.login }), authController.login);
+router.post(
+  '/login',
+  loginLimiter,
+  loginPerAccountLimiter,
+  validate({ body: authValidator.login }),
+  authController.login,
+);
 
 // Authenticated by the refresh cookie itself, not a bearer token.
 router.post('/refresh', refreshLimiter, authController.refresh);
@@ -66,6 +80,7 @@ router.post(
 router.post(
   '/forgot-password',
   passwordResetLimiter,
+  passwordResetPerAccountLimiter,
   validate({ body: authValidator.forgotPassword }),
   authController.forgotPassword,
 );

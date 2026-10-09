@@ -13,9 +13,15 @@ module.exports = (sequelize, DataTypes) => {
       type: {
         // Kept in step with the Postgres enum, which grows in migrations
         // 01700 (post_like, post_comment, post_share), 01900 (comment_reply),
-        // 02500 (support_ticket) and 02700 (ride_signal). A type missing here is
-        // rejected by the model before it can be written, even though the
-        // column allows it.
+        // 02500 (support_ticket), 02800 (ride_signal) and
+        // 20261002140641 (comment_like).
+        //
+        // This list was drifting: `comment_like` was added to the Postgres enum
+        // and written by post.service, but never here. On Postgres it happened
+        // not to matter — Sequelize only enforces ENUM client-side on MySQL, so
+        // the row still wrote. Any future `sync({ alter: true })` or a hand-added
+        // `isIn` validator would have turned every comment-like into a rejected
+        // write, so the two lists now match.
         type: DataTypes.ENUM(
           'follow',
           'community_join_request',
@@ -28,6 +34,7 @@ module.exports = (sequelize, DataTypes) => {
           'post_comment',
           'post_share',
           'comment_reply',
+          'comment_like',
           'support_ticket',
           'ride_signal',
         ),

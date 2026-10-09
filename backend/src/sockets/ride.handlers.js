@@ -26,10 +26,10 @@ const rideSchema = z.object({ rideId: z.string().uuid() }).strict();
 
 /** Per-socket throttle so live traffic does not hit the DB every signal. */
 const activityTouch = new Map();
-function touchRideActivity(rideId) {
+function touchRideActivity(socketId, rideId) {
   const now = Date.now();
-  if ((activityTouch.get(socket.id) ?? 0) > now - 60_000) return;
-  activityTouch.set(socket.id, now);
+  if ((activityTouch.get(socketId) ?? 0) > now - 60_000) return;
+  activityTouch.set(socketId, now);
   rideService.touchActivity(rideId).catch(() => {});
 }
 
@@ -116,7 +116,7 @@ module.exports = function registerRideHandlers(io, socket) {
 
       await socket.join(rideRoom(rideId));
       socket.data.rides.add(rideId);
-      touchRideActivity(rideId);
+      touchRideActivity(socket.id, rideId);
 
       const peers = await peersIn(rideId, socket.id);
 
@@ -150,7 +150,7 @@ module.exports = function registerRideHandlers(io, socket) {
   function leaveRide(rideId) {
     if (!socket.data.rides.has(rideId)) return;
     socket.data.rides.delete(rideId);
-    touchRideActivity(rideId);
+    touchRideActivity(socket.id, rideId);
     return socket.leave(rideRoom(rideId)).then(() => {
       socket.to(rideRoom(rideId)).emit('ride:peer-left', { rideId, socketId: socket.id, userId });
     });
@@ -181,7 +181,7 @@ module.exports = function registerRideHandlers(io, socket) {
         description,
       });
 
-      touchRideActivity(rideId);
+      touchRideActivity(socket.id, rideId);
       return reply({ ok: true });
     } catch (error) {
       return reply(toAckError(error));
@@ -211,7 +211,7 @@ module.exports = function registerRideHandlers(io, socket) {
         candidate,
       });
 
-      touchRideActivity(rideId);
+      touchRideActivity(socket.id, rideId);
       return reply({ ok: true });
     } catch (error) {
       return reply(toAckError(error));
@@ -231,7 +231,7 @@ module.exports = function registerRideHandlers(io, socket) {
       if (!socket.rooms.has(rideRoom(rideId))) return;
 
       // Somebody actually using their mic counts as ride activity.
-      if (isTransmitting && !isMuted) touchRideActivity(rideId);
+      if (isTransmitting && !isMuted) touchRideActivity(socket.id, rideId);
 
       socket.to(rideRoom(rideId)).emit('ride:voice-state', {
         rideId,
@@ -246,13 +246,36 @@ module.exports = function registerRideHandlers(io, socket) {
   });
 
   /** On disconnect, tell every ride this socket was in so peers can tear down. */
-  socket.on('disconnecting', () => {
-    socket.data.rides.forEach((rideId) => {
+  socket.on('disconnecting', async () => {
+    const rides = [...socket.data.rides];
+
+    for (const rideId of rides) {
       socket.to(rideRoom(rideId)).emit('ride:peer-left', {
         rideId,
         socketId: socket.id,
         userId,
       });
-    });
+    }
+
+    // The throttle map is process-lifetime, so it must not outlive the socket.
+    activityTouch.delete(socket.id);
+
+    // A crashed tab or a sleeping phone never sends `ride:leave`, which would
+    // leave a `joined` participant row holding a ride slot until the ride ends.
+    // Only release the row when this rider has no other tab still in the ride —
+    // two tabs are two peers, and closing one must not eject the rider.
+    await Promise.all(
+      rides.map(async (rideId) => {
+        try {
+          const room = await io.in(rideRoom(rideId)).fetchSockets();
+          const stillHere = room.some(
+            (peer) => peer.id !== socket.id && peer.data?.userId === userId,
+          );
+          if (!stillHere) await rideService.leave(rideId, userId);
+        } catch (error) {
+          logger.warn({ err: error, rideId, userId }, 'failed to release participant on disconnect');
+        }
+      }),
+    );
   });
 };

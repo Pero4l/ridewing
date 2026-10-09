@@ -111,9 +111,12 @@ async function shutdown(signal) {
 });
 
 // A crash with an unknown state is not safe to continue from; log and let the
-// process manager restart us.
+// process manager restart us. This handler only logged, which contradicted the
+// comment directly above it and left the process running in exactly the undefined
+// state the comment says it must not continue from.
 process.on('unhandledRejection', (reason) => {
-  logger.error({ err: reason }, 'unhandled promise rejection');
+  logger.fatal({ err: reason }, 'unhandled promise rejection — exiting');
+  process.exit(1);
 });
 process.on('uncaughtException', (error) => {
   logger.fatal({ err: error }, 'uncaught exception — exiting');

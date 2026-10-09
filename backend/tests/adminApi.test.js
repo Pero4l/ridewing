@@ -61,11 +61,17 @@ afterEach(async () => {
   // run must never delete a developer's own account out of a dev database.
   const testUsers = await User.findAll({ where: { email: { [Op.iLike]: '%@example.test' } } });
   const ids = testUsers.map((u) => u.id);
+  const usernames = testUsers.map((u) => u.username);
   if (ids.length) {
-    // Activity rows reference these users with ON DELETE SET NULL, but clearing
-    // them explicitly keeps the log assertions in later tests deterministic.
+    // Activity rows reference these users with ON DELETE SET NULL, so a row can
+    // outlive the user it points at and keep its id columns as NULL. Clearing by
+    // id alone therefore misses those, they accumulate, and any assertion about
+    // the log's contents becomes order-dependent. Usernames survive the FK, so
+    // they are matched on too.
     await AdminActivityLog.destroy({ where: { targetId: { [Op.in]: ids } } });
     await AdminActivityLog.destroy({ where: { adminId: { [Op.in]: ids } } });
+    await AdminActivityLog.destroy({ where: { targetUsername: usernames } });
+    await AdminActivityLog.destroy({ where: { adminUsername: usernames } });
     await User.destroy({ where: { id: { [Op.in]: ids } } });
   }
 });
@@ -330,7 +336,10 @@ describe('admin activity log', () => {
   it('does not log a rejected action', async () => {
     const admin = await makeUser({ role: 'admin' });
     await expect(adminService.changeRole(admin, admin.id, { role: 'rider' })).rejects.toBeTruthy();
-    expect(await AdminActivityLog.count()).toBe(0);
+    // Scoped to this admin rather than counting the whole table: another suite's
+    // rows (or rows orphaned by an earlier run) are not this test's concern.
+    expect(await AdminActivityLog.count({ where: { adminUsername: admin.username } })).toBe(0);
+    expect(await AdminActivityLog.count({ where: { targetUsername: admin.username } })).toBe(0);
   });
 
   it('lists activity newest first', async () => {
@@ -341,10 +350,12 @@ describe('admin activity log', () => {
     await adminService.suspendUser(admin, a.id, { reason: 'first' });
     await adminService.suspendUser(admin, b.id, { reason: 'second' });
 
+    // Filtered to this admin's rows rather than asserting on the whole table, so
+    // the test is independent of anything else left in the shared log.
     const result = await adminService.listActivity({});
-    expect(result.activity).toHaveLength(2);
-    expect(result.activity[0].targetUsername).toBe(b.username);
-    expect(result.total).toBe(2);
+    const mine = result.activity.filter((row) => row.adminUsername === admin.username);
+    expect(mine).toHaveLength(2);
+    expect(mine[0].targetUsername).toBe(b.username);
   });
 
   it('requires admin to read the log', async () => {

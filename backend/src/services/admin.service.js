@@ -14,6 +14,9 @@ const { Op } = require('sequelize');
 const { User, RideSession, Post, AdminActivityLog, sequelize } = require('../models');
 const ApiError = require('../utils/ApiError');
 const tokenService = require('./token.service');
+const { getIO } = require('../sockets/emit');
+const { userRoom } = require('../sockets/rooms');
+const logger = require('../config/logger');
 
 /**
  * Records who did what, in the same transaction as the action itself.
@@ -195,6 +198,18 @@ async function suspendUser(admin, targetUserId, { reason } = {}) {
     // continue using an access token that exists in another tab.
     await tokenService.revokeAllForUser(target.id, { transaction });
     await log(admin, 'user.suspended', target, { reason: r || null }, transaction);
+
+    // Sockets are long-lived and hold their rooms for the life of the connection,
+    // so revoking refresh tokens does not stop a suspended rider from sending
+    // messages or ride signals. Disconnect them once the suspension is durable.
+    transaction.afterCommit(async () => {
+      try {
+        getIO()?.in(userRoom(target.id)).disconnectSockets(true);
+      } catch (error) {
+        logger.warn({ err: error, userId: target.id }, 'failed to disconnect suspended user sockets');
+      }
+    });
+
     return target.toPrivateJSON();
   });
 }

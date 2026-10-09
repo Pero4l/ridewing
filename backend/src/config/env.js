@@ -123,6 +123,27 @@ const schema = z
         message: 'COOKIE_SAMESITE=none requires COOKIE_SECURE=true',
       });
     }
+
+    // DB traffic in the clear is a fail-open the app otherwise avoids: the JWT
+    // secret is already required unconditionally, so the transport gets the same
+    // treatment in production.
+    if (!value.DB_SSL) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['DB_SSL'],
+        message: 'DB_SSL must be true in production',
+      });
+    }
+
+    // An empty password is a valid *schema* value (local dev without one), so it
+    // is rejected here rather than by the field definition.
+    if (!value.DB_PASSWORD) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['DB_PASSWORD'],
+        message: 'DB_PASSWORD must be set in production',
+      });
+    }
   });
 
 const parsed = schema.safeParse(process.env);
@@ -222,9 +243,14 @@ const env = {
     // Gate for POST /api/auth/admin/register. Set on the backend host only;
     // without it the endpoint returns 404 so the surface stays closed.
     registerToken: raw.ADMIN_REGISTER_TOKEN || '',
-    // Admin notification inboxes, comma-separated. Defaults to the launch
-    // inbox so admin emails always make it somewhere in production.
-    emails: String(raw.ADMIN_EMAILS || 'ridewingteam@gmail.com')
+    // Admin notification inboxes, comma-separated.
+    //
+    // Empty by default on purpose. This used to fall back to a real address,
+    // which meant `env.admin.emails.length` was always truthy and *every*
+    // notification — each like, comment and follow — sent an outbound email. An
+    // unset value now means "no admin alerting", which is the safe default; set
+    // ADMIN_EMAILS explicitly to opt in.
+    emails: String(raw.ADMIN_EMAILS || '')
       .split(',')
       .map((value) => value.trim().toLowerCase())
       .filter(Boolean),

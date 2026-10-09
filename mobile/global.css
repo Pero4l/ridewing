@@ -1,0 +1,60 @@
+/*
+ * RideWing design tokens.
+ *
+ * Colours are RGB channel triplets so Tailwind can apply opacity modifiers
+ * (`text-ink/60`). The `:root` set is light; `.dark` overrides it, and
+ * NativeWind's `dark:` variant keys off the `dark` class on the root view.
+ *
+ * The palette mirrors the web app in `../frontend/app/globals.css` so the two
+ * clients read as one product: an emerald brand on a slightly cool grey canvas,
+ * with white cards floating on it. Neutrals are the zinc ramp.
+ */
+
+:root {
+  /* Canvas is the app background; surface is a card sitting on top of it.
+     They differ so cards read as elevated without needing heavy shadows. */
+  --canvas: 246 247 249;
+  --surface: 255 255 255;
+  --raised: 244 244 245;
+  --hairline: 228 228 231;
+
+  --ink: 24 24 27;
+  --muted: 113 113 122;
+  --faint: 161 161 170;
+
+  /* Brand: emerald-500, with emerald-600 for pressed / high-contrast accents. */
+  --accent: 16 185 129;
+  --accent-strong: 5 150 105;
+  --accent-soft: 236 253 245;
+  --danger: 220 38 38;
+  --danger-soft: 254 242 242;
+  --success: 22 163 74;
+  --warning: 217 119 6;
+  --on-accent: 255 255 255;
+}
+
+.dark:root,
+.dark {
+  --canvas: 11 11 14;
+  --surface: 20 20 23;
+  --raised: 28 28 31;
+  --hairline: 39 39 42;
+
+  --ink: 244 244 245;
+  --muted: 161 161 170;
+  --faint: 113 113 122;
+
+  /* emerald-400 reads better than 500 against a dark canvas. */
+  --accent: 52 211 153;
+  --accent-strong: 16 185 129;
+  --accent-soft: 12 52 40;
+  --danger: 248 113 113;
+  --danger-soft: 42 20 20;
+  --success: 74 222 128;
+  --warning: 251 191 36;
+  --on-accent: 5 46 34;
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

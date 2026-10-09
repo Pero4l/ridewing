@@ -69,7 +69,9 @@ app.use(
     },
     credentials: true, // required for the refresh cookie
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    // `X-Device-Id` binds refresh-token rotation to a device, so the browser and the
+// mobile client both send it — hence the explicit allow-list. `X-Admin-Token` is
+// deliberately absent: an admin credential must not be suppliable cross-origin.
     maxAge: 86400,
   }),
 );

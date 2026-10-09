@@ -22,6 +22,7 @@ const {
 } = require('../models');
 const ApiError = require('../utils/ApiError');
 const { normalizeLimit, decodeCursor, buildPage } = require('../utils/pagination');
+const afterCommit = require('../utils/afterCommit');
 const notificationService = require('./notification.service');
 const emailService = require('./email.service');
 const conversationService = require('./conversation.service');
@@ -259,10 +260,19 @@ async function like(postId, userId) {
     const post = await Post.findByPk(postId, { transaction });
     if (!post) throw ApiError.notFound('Post not found');
 
-    await PostLike.findOrCreate({ where: { postId, userId }, defaults: { postId, userId }, transaction });
+    // Gate the counter on `created`: the UI is idempotent, but a double-tap, a
+    // retry, or an optimistic re-fire reaches this endpoint more than once, and
+    // an unconditional increment would count a single rider's like several times.
+    const [row, created] = await PostLike.findOrCreate({
+      where: { postId, userId },
+      defaults: { postId, userId },
+      transaction,
+    });
+    if (!created) return { liked: true };
+
     await Post.increment('likeCount', { by: 1, where: { id: postId }, transaction });
 
-    transaction.afterCommit(() =>
+    afterCommit(transaction, () =>
       notificationService.create({
         userId: post.userId,
         actorId: userId,
@@ -277,11 +287,15 @@ async function like(postId, userId) {
 }
 
 async function unlike(postId, userId) {
-  const removed = await PostLike.destroy({ where: { postId, userId } });
-  if (removed) {
-    await Post.decrement('likeCount', { by: 1, where: { id: postId } });
-  }
-  return { liked: false };
+  return sequelize.transaction(async (transaction) => {
+    const removed = await PostLike.destroy({ where: { postId, userId }, transaction });
+    // One transaction, so a concurrent like/unlike cannot delete the row while
+    // the decrement commits (or the reverse) and leave the counter drifting.
+    if (removed) {
+      await Post.decrement('likeCount', { by: 1, where: { id: postId }, transaction });
+    }
+    return { liked: false };
+  });
 }
 
 async function likeComment(commentId, userId) {
@@ -289,10 +303,16 @@ async function likeComment(commentId, userId) {
     const comment = await PostComment.findByPk(commentId, { transaction });
     if (!comment) throw ApiError.notFound('Comment not found');
 
-    await CommentLike.findOrCreate({ where: { commentId, userId }, defaults: { commentId, userId }, transaction });
+    const [row, created] = await CommentLike.findOrCreate({
+      where: { commentId, userId },
+      defaults: { commentId, userId },
+      transaction,
+    });
+    if (!created) return { liked: true };
+
     await PostComment.increment('likeCount', { by: 1, where: { id: commentId }, transaction });
 
-    transaction.afterCommit(() =>
+    afterCommit(transaction, () =>
       notificationService.create({
         userId: comment.userId,
         actorId: userId,
@@ -307,11 +327,13 @@ async function likeComment(commentId, userId) {
 }
 
 async function unlikeComment(commentId, userId) {
-  const removed = await CommentLike.destroy({ where: { commentId, userId } });
-  if (removed) {
-    await PostComment.decrement('likeCount', { by: 1, where: { id: commentId } });
-  }
-  return { liked: false };
+  return sequelize.transaction(async (transaction) => {
+    const removed = await CommentLike.destroy({ where: { commentId, userId }, transaction });
+    if (removed) {
+      await PostComment.decrement('likeCount', { by: 1, where: { id: commentId }, transaction });
+    }
+    return { liked: false };
+  });
 }
 
 async function listComments(postId, { limit, cursor } = {}, viewerId) {
@@ -325,11 +347,15 @@ async function listComments(postId, { limit, cursor } = {}, viewerId) {
   const rows = await PostComment.findAll({
     where,
     include: [{ model: User, as: 'user' }],
-    order: [['createdAt', 'ASC'], ['id', 'ASC']],
+    // Newest-first for the keyset page, then reversed for display — the same
+    // shape as message.service.history. Ordering ASC while paging with `Op.lt`
+    // returned the *oldest* page and then re-served it forever.
+    order: [['createdAt', 'DESC'], ['id', 'DESC']],
     limit: pageSize + 1,
   });
 
-  const commentIds = rows.map((row) => row.id);
+  const page = buildPage(rows, pageSize, (row) => ({ createdAt: row.createdAt.toISOString() }));
+  const commentIds = page.items.map((row) => row.id);
   let likedSet = new Set();
   if (viewerId && commentIds.length) {
     const likedRows = await CommentLike.findAll({
@@ -339,24 +365,20 @@ async function listComments(postId, { limit, cursor } = {}, viewerId) {
     likedSet = new Set(likedRows.map((row) => row.commentId));
   }
 
-  const items = rows.map((row) => ({
-    id: row.id,
-    postId: row.postId,
-    parentId: row.parentId ?? null,
-    content: row.content,
-    createdAt: row.createdAt.toISOString(),
-    likeCount: row.likeCount,
-    viewerLiked: likedSet.has(row.id),
-    user: row.user ? row.user.toPublicJSON() : null,
-  }));
+  const items = page.items
+    .reverse()
+    .map((row) => ({
+      id: row.id,
+      postId: row.postId,
+      parentId: row.parentId ?? null,
+      content: row.content,
+      createdAt: row.createdAt.toISOString(),
+      likeCount: row.likeCount,
+      viewerLiked: likedSet.has(row.id),
+      user: row.user ? row.user.toPublicJSON() : null,
+    }));
 
-  const hasMore = items.length > pageSize;
-  const sliced = hasMore ? items.slice(0, pageSize) : items;
-  const last = sliced[sliced.length - 1];
-  return {
-    items: sliced,
-    pageInfo: { hasMore, nextCursor: hasMore && last ? last.createdAt : null },
-  };
+  return { items, pageInfo: page.pageInfo };
 }
 
 async function addComment(postId, userId, rawContent, parentId) {
@@ -382,7 +404,7 @@ async function addComment(postId, userId, rawContent, parentId) {
     // comment shows a real name immediately instead of a "Someone" placeholder.
     const author = await User.findByPk(userId, { transaction });
 
-    transaction.afterCommit(() => {
+    afterCommit(transaction, () => {
       notificationService.create({
         userId: post.userId,
         actorId: userId,
@@ -454,7 +476,7 @@ async function addInteraction(postId, userId, { kind, counter, notify }) {
     // the notification service would drop it anyway; the early return just avoids
     // the write.
     if (notify && post.userId !== userId) {
-      transaction.afterCommit(() =>
+      afterCommit(transaction, () =>
         notificationService.create({
           userId: post.userId,
           actorId: userId,

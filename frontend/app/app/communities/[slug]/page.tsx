@@ -1,6 +1,7 @@
 "use client";
 
 import { use, useCallback, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
@@ -124,7 +125,14 @@ function Header({ slug }: { slug: string }) {
 
       <div className="px-4">
         {community.image ? (
-          <img src={community.image} alt="" className="h-36 w-full rounded-xl object-cover" />
+          <Image
+            src={community.image}
+            alt=""
+            width={720}
+            height={288}
+            sizes="(max-width: 640px) 100vw, 640px"
+            className="h-36 w-full rounded-xl object-cover"
+          />
         ) : (
           <div className="grid h-24 w-full place-items-center rounded-xl bg-gradient-to-br from-zinc-100 to-zinc-200 text-4xl font-bold text-zinc-400 dark:from-zinc-800 dark:to-zinc-900 dark:text-zinc-600">
             {community.name.charAt(0).toUpperCase()}

@@ -3,7 +3,7 @@
 const asyncHandler = require('../utils/asyncHandler');
 const postService = require('../services/post.service');
 const conversationService = require('../services/conversation.service');
-const { emitToConversation, emitToUser } = require('../sockets/emit');
+const { emitMessageNew } = require('../sockets/emit');
 
 const create = asyncHandler(async (req, res) => {
   const post = await postService.create(req.user.id, req.body);
@@ -82,11 +82,8 @@ const shareToFriend = asyncHandler(async (req, res) => {
   );
 
   const payload = message.toJSONSafe();
-  emitToConversation(conversation.id, 'message:new', payload);
   const members = await conversationService.memberIds(conversation.id);
-  for (const memberId of new Set([...members, req.user.id])) {
-    emitToUser(memberId, 'message:new', payload);
-  }
+  await emitMessageNew(conversation.id, payload, [...members, req.user.id]);
 
   res.status(201).json({
     conversation: { id: conversation.id, type: conversation.type },

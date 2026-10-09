@@ -252,9 +252,14 @@ function VideoLightbox({ url, posterUrl, onClose }: { url: string; posterUrl?: s
   const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    videoRef.current?.play().catch(() => {});
+    // Capture the node now. Reading `videoRef.current` in the cleanup would read
+    // whatever the ref points at *by unmount time* — which React may already
+    // have detached — so the pause would silently do nothing and playback could
+    // outlive the lightbox.
+    const video = videoRef.current;
+    video?.play().catch(() => {});
     return () => {
-      videoRef.current?.pause();
+      video?.pause();
       if (controlsTimeoutRef.current) {
         clearTimeout(controlsTimeoutRef.current);
       }

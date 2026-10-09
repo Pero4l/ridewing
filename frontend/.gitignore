@@ -30,8 +30,10 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files — real secrets must never be committed. The template is the
+# exception, and the negation has to come after the pattern to win.
 .env*
+!.env.example
 
 # vercel
 .vercel
