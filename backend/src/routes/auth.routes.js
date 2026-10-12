@@ -26,7 +26,7 @@ router.post(
   '',
   writeLimiter,
   validate({ body: authValidator.adminRegister }),
-  authController.registerA/admin/registerdmin,
+  authController.registerAdmin,
 );
 
 router.post(
