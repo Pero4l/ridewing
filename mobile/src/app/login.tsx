@@ -1,9 +1,16 @@
 import { Link, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, View } from "react-native";
+import {
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  View,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Brand, ErrorBanner } from "@/components/auth";
-import { Button, Card, Field, T } from "@/components/ui";
+import { Button, Card, Divider, Field, T } from "@/components/ui";
 import {
   ApiError,
   checkConnection,
@@ -17,6 +24,7 @@ import { useSession } from "@/lib/session";
 export default function LoginScreen() {
   const { login } = useSession();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
@@ -28,16 +36,19 @@ export default function LoginScreen() {
   const [probe, setProbe] = useState<{ ok: boolean; detail: string } | null>(null);
   const [probing, setProbing] = useState(false);
 
-  useEffect(() => onBaseUrlChange(() => {
-    setUrl(getBaseUrl());
-    setDraftUrl(getBaseUrl());
-    setHint(unreachableBaseUrlHint());
-  }), []);
+  useEffect(
+    () =>
+      onBaseUrlChange(() => {
+        setUrl(getBaseUrl());
+        setDraftUrl(getBaseUrl());
+        setHint(unreachableBaseUrlHint());
+      }),
+    [],
+  );
 
   async function onSubmit() {
     setError(null);
 
-    // Persist an edited URL before trying, so the request goes where they typed.
     if (draftUrl.trim() && draftUrl.trim() !== url) {
       await setBaseUrl(draftUrl);
       setUrl(getBaseUrl());
@@ -46,8 +57,6 @@ export default function LoginScreen() {
     setBusy(true);
     try {
       await login(identifier.trim(), password);
-      // The root layout swaps stacks once the session resolves; replacing here
-      // as well keeps the transition immediate.
       router.replace("/(tabs)");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not sign in. Try again.");
@@ -69,20 +78,29 @@ export default function LoginScreen() {
     }
   }
 
+  const canSubmit = identifier.trim().length > 0 && password.length > 0;
+
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       style={{ flex: 1 }}
     >
       <ScrollView
-        // RN's ScrollView has no content-container className, so the container
-        // padding stays a style object.
-        contentContainerStyle={{ flexGrow: 1, justifyContent: "center", padding: 20, gap: 20 }}
+        contentContainerStyle={{
+          flexGrow: 1,
+          justifyContent: "center",
+          paddingHorizontal: 24,
+          paddingTop: insets.top + 16,
+          paddingBottom: insets.bottom + 32,
+          gap: 28,
+        }}
         keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
       >
         <Brand />
 
-        <Card className="gap-3.5">
+        {/* Main sign-in form */}
+        <Card className="gap-4">
           <Field
             label="Username, email or phone"
             value={identifier}
@@ -105,8 +123,9 @@ export default function LoginScreen() {
 
           <ErrorBanner message={error} />
 
+          {/* Connection troubleshooter — only shown when something goes wrong */}
           {error || probe?.ok === false ? (
-            <View className="gap-2.5 rounded-2xl border border-border bg-raised p-3.5">
+            <View className="gap-3 rounded-2xl border border-hairline bg-raised p-4">
               <T size={13} weight="700">
                 Cannot reach the RideWing server
               </T>
@@ -117,7 +136,7 @@ export default function LoginScreen() {
                 autoCapitalize="none"
                 autoCorrect={false}
                 keyboardType="url"
-                placeholder="http://192.168.1.20:4000"
+                placeholder="https://ridewing.onrender.com"
               />
               {hint ? (
                 <T size={12} tone="warning">
@@ -126,7 +145,7 @@ export default function LoginScreen() {
               ) : null}
               {probe ? (
                 <T size={12} tone={probe.ok ? "success" : "danger"}>
-                  {probe.ok ? `Connected. ${probe.detail}` : probe.detail}
+                  {probe.ok ? `✓ Connected — ${probe.detail}` : probe.detail}
                 </T>
               ) : null}
               <Button
@@ -142,7 +161,7 @@ export default function LoginScreen() {
             label="Sign in"
             onPress={onSubmit}
             loading={busy}
-            disabled={!identifier.trim() || !password}
+            disabled={!canSubmit}
             fullWidth
           />
 
@@ -158,13 +177,15 @@ export default function LoginScreen() {
           </Pressable>
         </Card>
 
-        <View className="items-center gap-1">
-          <T size={14} tone="muted">
+        {/* Register prompt */}
+        <View className="items-center">
+          <Divider className="w-full mb-6" />
+          <T size={14} tone="muted" className="mb-1">
             New here? Join the ride
           </T>
           <Link href="/register" replace>
             <T size={15} weight="700" tone="accent">
-              Create an account
+              Create a free account →
             </T>
           </Link>
         </View>

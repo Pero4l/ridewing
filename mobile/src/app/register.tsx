@@ -1,23 +1,30 @@
 import { Link, useRouter } from "expo-router";
 import { useState } from "react";
-import { KeyboardAvoidingView, Platform, ScrollView, View } from "react-native";
+import {
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  View,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Brand, ErrorBanner } from "@/components/auth";
-import { Button, Card, Field, T } from "@/components/ui";
+import { Button, Card, Divider, Field, T } from "@/components/ui";
 import { ApiError } from "@/lib/api";
 import {
+  DISPLAY_NAME_MAX,
   isPasswordValid,
   PASSWORD_HINT,
   USERNAME_HINT,
   USERNAME_MAX,
   USERNAME_MIN,
-  DISPLAY_NAME_MAX,
 } from "@/lib/validation";
 import { useSession } from "@/lib/session";
 
 export default function RegisterScreen() {
   const { register } = useSession();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -32,11 +39,7 @@ export default function RegisterScreen() {
     setError(null);
     setErrors({});
 
-    // Check locally first so the rider gets an instant, specific reason instead of
-    // a server round trip that returns the same rules in a different shape.
-    const badPassword = !isPasswordValid(password)
-      ? PASSWORD_HINT
-      : null;
+    const badPassword = !isPasswordValid(password) ? PASSWORD_HINT : null;
     setLocalPasswordError(badPassword);
     if (badPassword || username.trim().length < USERNAME_MIN) return;
 
@@ -51,7 +54,6 @@ export default function RegisterScreen() {
       router.replace("/(tabs)");
     } catch (err) {
       if (err instanceof ApiError) {
-        // The backend returns per-field problems; surface them inline.
         if (err.details?.length) {
           const map: Record<string, string> = {};
           for (const detail of err.details) {
@@ -81,12 +83,20 @@ export default function RegisterScreen() {
       style={{ flex: 1 }}
     >
       <ScrollView
-        contentContainerStyle={{ flexGrow: 1, justifyContent: "center", padding: 20, gap: 20 }}
+        contentContainerStyle={{
+          flexGrow: 1,
+          justifyContent: "center",
+          paddingHorizontal: 24,
+          paddingTop: insets.top + 16,
+          paddingBottom: insets.bottom + 32,
+          gap: 28,
+        }}
         keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
       >
         <Brand />
 
-        <Card className="gap-3.5">
+        <Card className="gap-4">
           <Field
             label="Username"
             value={username}
@@ -139,13 +149,15 @@ export default function RegisterScreen() {
           />
         </Card>
 
-        <View className="items-center gap-1">
-          <T size={14} tone="muted">
+        {/* Login link */}
+        <View className="items-center">
+          <Divider className="w-full mb-6" />
+          <T size={14} tone="muted" className="mb-1">
             Already have an account?
           </T>
           <Link href="/login" replace>
             <T size={15} weight="700" tone="accent">
-              Sign in
+              Sign in →
             </T>
           </Link>
         </View>

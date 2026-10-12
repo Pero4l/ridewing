@@ -52,10 +52,13 @@ module.exports = (sequelize, DataTypes) => {
       bio: {
         type: DataTypes.TEXT,
         allowNull: true,
+        defaultValue: "I'm happy to join RideWing",
       },
       profileImage: {
         type: DataTypes.STRING(500),
         allowNull: true,
+        defaultValue:
+          "https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_1280.png",
       },
       role: {
         type: DataTypes.ENUM('rider', 'admin'),

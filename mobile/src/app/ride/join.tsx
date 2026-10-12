@@ -1,10 +1,20 @@
+import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useState } from "react";
-import { KeyboardAvoidingView, Platform, ScrollView, View } from "react-native";
+import {
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  View,
+} from "react-native";
 
 import { ErrorBanner } from "@/components/auth";
-import { Button, Card, Field, Screen, T } from "@/components/ui";
+import { Button, Screen, T } from "@/components/ui";
 import { ApiError, api } from "@/lib/api";
+import { usePalette } from "@/lib/palette";
 import type { Ride } from "@/lib/types";
 
 /**
@@ -19,6 +29,8 @@ export default function JoinRideScreen() {
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  const { colors } = usePalette();
 
   const normalised = code.trim().toUpperCase();
 
@@ -41,38 +53,83 @@ export default function JoinRideScreen() {
   }
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      style={{ flex: 1 }}
-    >
-      <Screen>
-        <ScrollView contentContainerStyle={{ padding: 16, gap: 16 }}>
-          <Card className="gap-4">
-          <View className="gap-1">
-            <T size={16} weight="700">
-              Join with an invite code
+    <Screen>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        style={styles.flex}
+      >
+        <ScrollView
+          contentContainerStyle={styles.scroll}
+          keyboardShouldPersistTaps="handled"
+        >
+          {/* ── Hero ──────────────────────────────────────────────────────── */}
+          <View style={styles.hero}>
+            <View
+              style={[
+                styles.iconCircle,
+                {
+                  backgroundColor: colors.raised,
+                  // elevated ring
+                  shadowColor: "#09090B",
+                  shadowOpacity: 0.1,
+                  shadowRadius: 20,
+                  shadowOffset: { width: 0, height: 4 },
+                  elevation: 6,
+                },
+              ]}
+            >
+              <Ionicons name="key" size={56} color={colors.accent} />
+            </View>
+            <T size={28} weight="800" className="text-center tracking-tight" style={styles.heading}>
+              Join a Ride
             </T>
-            <T size={13} tone="muted">
-              Ask the ride organiser for the code shown on their ride screen.
+            <T size={14} muted className="text-center" style={styles.subtitle}>
+              Enter the invite code from the ride organiser.
             </T>
           </View>
 
-          <Field
-            label="Invite code"
-            value={code}
-            onChangeText={setCode}
-            placeholder="E.g. 7KQP2M"
-            autoCapitalize="characters"
-            autoCorrect={false}
-            maxLength={12}
-            // Readable entry for a short code people read aloud or screenshot.
-            style={{
-              letterSpacing: 4,
-              fontSize: 22,
-              textAlign: "center",
-              fontWeight: "700",
-            }}
-          />
+          {/* ── Code input ────────────────────────────────────────────────── */}
+          <View
+            style={[
+              styles.codeCard,
+              {
+                backgroundColor: colors.surface,
+                borderColor: normalised.length > 0 ? colors.accent : colors.hairline,
+              },
+            ]}
+          >
+            <TextInput
+              value={code}
+              onChangeText={(text) => setCode(text.toUpperCase().replace(/[^A-Z0-9]/g, ""))}
+              placeholder="A1B2C3"
+              placeholderTextColor={colors.faint}
+              autoCapitalize="characters"
+              autoCorrect={false}
+              autoFocus
+              maxLength={12}
+              returnKeyType="go"
+              onSubmitEditing={normalised.length >= 4 ? join : undefined}
+              style={[
+                styles.codeInput,
+                {
+                  color: colors.ink,
+                  // monospace feel via wide letter-spacing + system monospace font
+                  fontFamily: Platform.OS === "ios" ? "Courier New" : "monospace",
+                },
+              ]}
+              accessibilityLabel="Invite code"
+            />
+            {normalised.length > 0 && (
+              <Pressable
+                onPress={() => setCode("")}
+                hitSlop={12}
+                accessibilityLabel="Clear code"
+                style={styles.clearBtn}
+              >
+                <Ionicons name="close-circle" size={20} color={colors.faint} />
+              </Pressable>
+            )}
+          </View>
 
           <ErrorBanner message={error} />
 
@@ -83,13 +140,78 @@ export default function JoinRideScreen() {
             disabled={normalised.length < 4}
             fullWidth
           />
-        </Card>
 
-        <T size={12} tone="muted" className="text-center">
-          Anyone with the code can join, so only share it with riders you want on the ride.
-        </T>
+          {/* ── Footer note ───────────────────────────────────────────────── */}
+          <T size={12} muted className="text-center" style={styles.note}>
+            Anyone with the code can join — only share it with riders you want on the ride.
+          </T>
         </ScrollView>
-      </Screen>
-    </KeyboardAvoidingView>
+      </KeyboardAvoidingView>
+    </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  flex: {
+    flex: 1,
+  },
+  scroll: {
+    padding: 24,
+    gap: 24,
+    flexGrow: 1,
+  },
+  // ── hero
+  hero: {
+    alignItems: "center",
+    paddingTop: 16,
+    gap: 12,
+  },
+  iconCircle: {
+    width: 104,
+    height: 104,
+    borderRadius: 52,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 4,
+  },
+  heading: {
+    marginTop: 0,
+  },
+  subtitle: {
+    maxWidth: 260,
+  },
+  // ── code card
+  codeCard: {
+    borderRadius: 20,
+    borderWidth: 2,
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    // shadow
+    shadowColor: "#09090B",
+    shadowOpacity: 0.05,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  codeInput: {
+    flex: 1,
+    fontSize: 40,
+    fontWeight: "700",
+    letterSpacing: 10,
+    textAlign: "center",
+    paddingVertical: 16,
+    // prevent extra height from inner Android line-height padding
+    includeFontPadding: false,
+    textAlignVertical: "center",
+  },
+  clearBtn: {
+    paddingLeft: 8,
+  },
+  // ── footer
+  note: {
+    paddingHorizontal: 8,
+    marginTop: 4,
+  },
+});

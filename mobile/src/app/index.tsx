@@ -5,6 +5,7 @@ import { ActivityIndicator, View } from "react-native";
 import { Brand } from "@/components/auth";
 import { T } from "@/components/ui";
 import { unreachableBaseUrlHint } from "@/lib/api";
+import { usePalette } from "@/lib/palette";
 import { useSession } from "@/lib/session";
 
 /** After this long without a session decision, say why rather than spin forever. */
@@ -12,6 +13,7 @@ const SLOW_THRESHOLD_MS = 4000;
 
 export default function Index() {
   const { status } = useSession();
+  const { colors } = usePalette();
   const [slow, setSlow] = useState(false);
 
   useEffect(() => {
@@ -29,7 +31,7 @@ export default function Index() {
   return (
     <View className="flex-1 items-center justify-center gap-4 bg-canvas px-6">
       <Brand />
-      <ActivityIndicator className="text-accent" />
+      <ActivityIndicator color={colors.accent} />
 
       {slow ? (
         <View className="items-center gap-1">

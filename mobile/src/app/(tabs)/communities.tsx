@@ -4,41 +4,42 @@
  * synchronous setState during render. The rule cannot see across the async
  * boundary and flags the fetch helper instead.
  */
+import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
-import { FlatList, Pressable, RefreshControl, View } from "react-native";
+import { FlatList, Pressable, RefreshControl, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import {
-  Button,
-  Card,
+  Avatar,
+  Badge,
   EmptyState,
   ErrorState,
-  Row,
   Screen,
   Spinner,
   T,
 } from "@/components/ui";
 import { ApiError, api } from "@/lib/api";
+import { usePalette } from "@/lib/palette";
 import type { Community, Page } from "@/lib/types";
 
 /**
- * The list is a heterogeneous union, so every entry carries a `kind` that
- * `renderItem` switches on. TypeScript narrows on it, which is what removes
- * the "property 'community' does not exist" error and lets each branch read
- * only the fields its variant actually declares.
+ * Each list item is a discriminated union so TypeScript narrows properly in
+ * `renderItem` — no "property X does not exist on union" errors.
  */
 type ListItem =
   | { kind: "header" }
+  | { kind: "spinner" }
   | { kind: "error" }
   | { kind: "section"; label: string }
-  | { kind: "community"; community: Community }
+  | { kind: "community"; community: Community; isMember: boolean }
   | { kind: "empty" };
 
 export default function CommunitiesScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { colors } = usePalette();
 
   const [mine, setMine] = useState<Community[]>([]);
   const [suggested, setSuggested] = useState<Community[]>([]);
@@ -52,7 +53,7 @@ export default function CommunitiesScreen() {
       // `/mine` returns a bare `{ communities }` — not a paginated page.
       const [joined, all] = await Promise.all([
         api.get<{ communities: Community[] }>("/api/communities/mine"),
-        api.get<Page<Community>>("/api/communities?limit=30"),
+        api.get<Page<Community>>("/api/communities?limit=40"),
       ]);
       setMine(joined.communities);
       setSuggested(
@@ -72,54 +73,33 @@ export default function CommunitiesScreen() {
     void load();
   }, [load]);
 
+  // Build the heterogeneous list data
   const data: ListItem[] = [
     { kind: "header" },
+    ...(loading ? [{ kind: "spinner" as const }] : []),
     ...(error && !mine.length && !suggested.length
       ? [{ kind: "error" as const }]
       : []),
     ...(mine.length
       ? [{ kind: "section" as const, label: "YOUR GROUPS" }]
       : []),
-    ...mine.map((c) => ({ kind: "community" as const, community: c })),
-    ...(suggested.length
-      ? [{ kind: "section" as const, label: "FIND YOUR PEOPLE" }]
+    ...mine.map(
+      (c) => ({ kind: "community" as const, community: c, isMember: true }),
+    ),
+    ...(!loading && suggested.length
+      ? [{ kind: "section" as const, label: "DISCOVER" }]
       : []),
-    ...suggested.map((c) => ({ kind: "community" as const, community: c })),
+    ...(!loading
+      ? suggested.map((c) => ({
+          kind: "community" as const,
+          community: c,
+          isMember: false,
+        }))
+      : []),
+    ...(!loading && !error && !mine.length && !suggested.length
+      ? [{ kind: "empty" as const }]
+      : []),
   ];
-
-  const renderCommunity = (community: Community) => (
-    <Pressable
-      onPress={() => router.push(`/community/${community.slug}`)}
-      accessibilityRole="button"
-    >
-      <Card className="gap-2.5">
-        <Row gap={12}>
-          {community.image ? (
-            <Image
-              source={{ uri: community.image }}
-              className="h-12 w-12 rounded-2xl bg-raised"
-              contentFit="cover"
-              transition={120}
-            />
-          ) : null}
-          <View className="flex-1">
-            <T size={16} weight="700" numberOfLines={1}>
-              {community.name}
-            </T>
-            <T size={12} muted>
-              {community.memberCount} members
-              {community.joinPolicy === "request" ? " · approval required" : ""}
-            </T>
-          </View>
-        </Row>
-        {community.bio ? (
-          <T size={13} muted numberOfLines={2}>
-            {community.bio}
-          </T>
-        ) : null}
-      </Card>
-    </Pressable>
-  );
 
   return (
     <Screen>
@@ -127,14 +107,13 @@ export default function CommunitiesScreen() {
         data={data}
         keyExtractor={(item) => {
           if (item.kind === "community") return `c-${item.community.id}`;
-          if (item.kind === "section") return `section-${item.label}`;
+          if (item.kind === "section") return `s-${item.label}`;
           return item.kind;
         }}
-        contentContainerStyle={{
-          padding: 16,
-          gap: 12,
-          paddingBottom: insets.bottom + 96,
-        }}
+        contentContainerStyle={[
+          styles.listContent,
+          { paddingBottom: insets.bottom + 96 },
+        ]}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -148,54 +127,259 @@ export default function CommunitiesScreen() {
           switch (item.kind) {
             case "header":
               return (
-                <View className="gap-3">
-                  <Row className="justify-between">
-                    <View>
-                      <T size={26} weight="800">
-                        Groups
-                      </T>
-                      <T size={13} muted>
-                        Local scenes, clubs and routes
-                      </T>
-                    </View>
-                  </Row>
-                  <Button
-                    label="Create a group"
-                    icon="add"
+                <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
+                  <View style={styles.headerText}>
+                    <T size={28} weight="800" style={styles.headerTitle}>
+                      Groups
+                    </T>
+                    <T size={12} muted style={styles.headerSubtitle}>
+                      Local scenes, clubs and routes
+                    </T>
+                  </View>
+                  {/* Create button — icon + label, right-aligned */}
+                  <Pressable
                     onPress={() => router.push("/community/new")}
-                  />
+                    accessibilityRole="button"
+                    accessibilityLabel="Create a group"
+                    style={[
+                      styles.createBtn,
+                      { backgroundColor: colors.accentSoft },
+                    ]}
+                  >
+                    <Ionicons name="add" size={15} color={colors.accent} />
+                    <T size={13} weight="700" tone="accent">
+                      Create
+                    </T>
+                  </Pressable>
                 </View>
               );
+
+            case "spinner":
+              return <Spinner label="Loading groups…" />;
+
             case "error":
               return (
-                <ErrorState message={error ?? ""} onRetry={() => void load()} />
+                <ErrorState
+                  message={error ?? ""}
+                  onRetry={() => void load()}
+                />
               );
+
             case "section":
               return (
-                <T size={12} weight="700" muted>
+                <T
+                  size={11}
+                  weight="700"
+                  muted
+                  style={styles.sectionLabel}
+                >
                   {item.label}
                 </T>
               );
+
             case "community":
-              return renderCommunity(item.community);
+              return (
+                <CommunityRow
+                  community={item.community}
+                  isMember={item.isMember}
+                  colors={colors}
+                  onPress={() =>
+                    router.push(`/community/${item.community.slug}`)
+                  }
+                />
+              );
+
+            case "empty":
+              return (
+                <EmptyState
+                  icon="people-outline"
+                  title="No groups yet"
+                  body="Start one for your local scene, or check back as more riders join."
+                />
+              );
+
             default:
               return null;
           }
         }}
-        ListEmptyComponent={
-          loading ? (
-            <Spinner label="Loading groups" />
-          ) : error ? (
-            <ErrorState message={error} onRetry={() => void load()} />
-          ) : (
-            <EmptyState
-              icon="people-outline"
-              title="No groups yet"
-              body="Start one for your local scene, or browse to find existing ones."
-            />
-          )
-        }
       />
     </Screen>
   );
 }
+
+// ── Community row ────────────────────────────────────────────────────────────
+
+type CommunityRowProps = {
+  community: Community;
+  isMember: boolean;
+  // Pass colors down so the row doesn't need to call usePalette itself
+  colors: ReturnType<typeof import("@/lib/palette").usePalette>["colors"];
+  onPress: () => void;
+};
+
+function CommunityRow({ community, isMember, colors, onPress }: CommunityRowProps) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`Open ${community.name}`}
+      style={({ pressed }) => [
+        styles.communityRow,
+        { backgroundColor: pressed ? colors.raised : colors.surface },
+      ]}
+    >
+      {/* Thumbnail: image or placeholder icon */}
+      {community.image ? (
+        <Image
+          source={{ uri: community.image }}
+          style={styles.thumbnail}
+          contentFit="cover"
+          transition={120}
+        />
+      ) : (
+        <View
+          style={[styles.thumbnail, styles.thumbnailPlaceholder, { backgroundColor: colors.raised }]}
+        >
+          <Ionicons name="people" size={22} color={colors.muted} />
+        </View>
+      )}
+
+      {/* Name + meta */}
+      <View style={styles.communityMeta}>
+        <View style={styles.communityNameRow}>
+          <T size={15} weight="700" numberOfLines={1} style={styles.communityName}>
+            {community.name}
+          </T>
+          {isMember ? <Badge label="Member" tone="accent" /> : null}
+        </View>
+        <View style={styles.communitySubRow}>
+          <T size={12} muted numberOfLines={1}>
+            {community.memberCount}{" "}
+            {community.memberCount === 1 ? "member" : "members"}
+          </T>
+          {community.joinPolicy === "request" ? (
+            <>
+              <T size={12} muted>
+                ·
+              </T>
+              <View
+                style={[
+                  styles.policyBadge,
+                  { backgroundColor: colors.raised },
+                ]}
+              >
+                <Ionicons
+                  name="lock-closed"
+                  size={10}
+                  color={colors.muted}
+                />
+                <T size={11} muted>
+                  Approval
+                </T>
+              </View>
+            </>
+          ) : (
+            <>
+              <T size={12} muted>
+                ·
+              </T>
+              <T size={11} tone="success">
+                Open
+              </T>
+            </>
+          )}
+        </View>
+      </View>
+
+      {/* Chevron */}
+      <Ionicons name="chevron-forward" size={16} color={colors.faint} />
+    </Pressable>
+  );
+}
+
+const styles = StyleSheet.create({
+  listContent: {
+    gap: 2,
+    paddingTop: 0,
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+    gap: 8,
+  },
+  headerText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  headerTitle: {
+    letterSpacing: -0.5,
+  },
+  headerSubtitle: {
+    marginTop: 2,
+  },
+  createBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    marginTop: 4,
+    flexShrink: 0,
+  },
+  sectionLabel: {
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+    paddingHorizontal: 16,
+    paddingTop: 20,
+    paddingBottom: 6,
+  },
+  communityRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 12,
+  },
+  thumbnail: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    flexShrink: 0,
+  },
+  thumbnailPlaceholder: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  communityMeta: {
+    flex: 1,
+    minWidth: 0,
+    gap: 3,
+  },
+  communityNameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flexWrap: "wrap",
+  },
+  communityName: {
+    flexShrink: 1,
+  },
+  communitySubRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    flexWrap: "wrap",
+  },
+  policyBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+});

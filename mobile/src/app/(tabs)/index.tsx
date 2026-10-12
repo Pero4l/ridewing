@@ -16,6 +16,7 @@ import {
   Avatar,
   Button,
   Card,
+  Divider,
   EmptyState,
   ErrorState,
   FAB,
@@ -26,6 +27,7 @@ import {
   T,
 } from "@/components/ui";
 import { ApiError, api } from "@/lib/api";
+import { usePalette } from "@/lib/palette";
 import { useSession } from "@/lib/session";
 import type { Community, Page, Post, Ride } from "@/lib/types";
 
@@ -45,6 +47,7 @@ export default function FeedScreen() {
   const router = useRouter();
   const { user } = useSession();
   const insets = useSafeAreaInsets();
+  const { colors } = usePalette();
 
   const [posts, setPosts] = useState<Post[]>([]);
   const [groups, setGroups] = useState<Community[]>([]);
@@ -170,7 +173,6 @@ export default function FeedScreen() {
         contentContainerStyle={{
           paddingTop: insets.top + 6,
           paddingBottom: insets.bottom + 96,
-          gap: 12,
         }}
         refreshControl={
           <RefreshControl
@@ -187,16 +189,36 @@ export default function FeedScreen() {
         }}
         ListHeaderComponent={
           <View className="gap-4 pb-1">
+            {/* ── Personal greeting ────────────────────────────────────── */}
             <View className="flex-row items-center gap-3 px-4">
-              <Avatar user={user} size={44} />
+              {/* Avatar with an emerald ring to signal "it's your feed" */}
+              <View
+                className="rounded-full"
+                style={{
+                  borderWidth: 2,
+                  borderColor: colors.accent,
+                  padding: 2.5,
+                }}
+              >
+                <Avatar user={user} size={44} />
+              </View>
               <View className="min-w-0 flex-1">
-                <T size={22} weight="800" numberOfLines={1} className="tracking-tight">
+                <T size={24} weight="800" numberOfLines={1} className="tracking-tight">
                   {firstName ? `${greeting}, ${firstName}` : greeting}
                 </T>
                 <T size={13} muted>
                   Find a ride, catch a crew.
                 </T>
               </View>
+              <Pressable
+                onPress={() => router.push("/notifications")}
+                accessibilityRole="button"
+                accessibilityLabel="Notifications"
+                hitSlop={8}
+                className="h-10 w-10 items-center justify-center rounded-full bg-raised active:opacity-75"
+              >
+                <Ionicons name="notifications-outline" size={22} color={colors.ink} />
+              </Pressable>
             </View>
 
             <View className="px-4">
@@ -214,9 +236,8 @@ export default function FeedScreen() {
             <QuickActions />
 
             {rides.length ? (
-              <View className="gap-1">
+              <View className="gap-1.5">
                 <SectionTitle
-                  className="pb-1"
                   action={
                     <Pressable onPress={() => router.push("/(tabs)/rides")} hitSlop={8}>
                       <T size={12} weight="600" tone="accent">
@@ -230,7 +251,7 @@ export default function FeedScreen() {
                 <Card padded={false} className="mx-4 overflow-hidden">
                   {rides.slice(0, 3).map((ride, index) => (
                     <View key={ride.id}>
-                      {index > 0 ? <View className="h-px border-border" /> : null}
+                      {index > 0 ? <Divider /> : null}
                       <RideRow ride={ride} />
                     </View>
                   ))}
@@ -256,14 +277,14 @@ export default function FeedScreen() {
                   data={groups}
                   keyExtractor={(item) => item.id}
                   showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}
+                  contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
                   renderItem={({ item }) => (
                     <Pressable
                       onPress={() => router.push(`/community/${item.slug}`)}
-                      className="min-w-[132px] rounded-2xl border border-border bg-surface px-3.5 py-3 active:opacity-80"
+                      className="min-w-[128px] rounded-2xl border border-hairline bg-surface px-3.5 py-3 active:opacity-80"
                     >
-                      <View className="mb-2 h-8 w-8 items-center justify-center rounded-lg bg-border">
-                        <Ionicons name="people" size={16} className="text-accent" />
+                      <View className="mb-2 h-9 w-9 items-center justify-center rounded-xl bg-accentSoft">
+                        <Ionicons name="people" size={18} color={colors.accent} />
                       </View>
                       <T size={13} weight="700" numberOfLines={1}>
                         {item.name}
@@ -276,12 +297,13 @@ export default function FeedScreen() {
                 />
               </View>
             ) : null}
+
+            {/* Posts section label */}
+            <SectionTitle>Latest posts</SectionTitle>
           </View>
         }
         renderItem={({ item }) => (
-          <View className="px-4">
-            <PostCard post={item} actions={actions} onOpenProfile={(u) => router.push(`/profile/${u}`)} />
-          </View>
+          <PostCard post={item} actions={actions} onOpenProfile={(u) => router.push(`/profile/${u}`)} />
         )}
         ListEmptyComponent={
           loading ? (
@@ -311,6 +333,7 @@ export default function FeedScreen() {
  */
 function QuickActions() {
   const router = useRouter();
+  const { colors } = usePalette();
   return (
     <View className="flex-row gap-3 px-4">
       <Pressable
@@ -319,18 +342,29 @@ function QuickActions() {
         accessibilityLabel="Start a ride"
         className="flex-1 active:opacity-90"
       >
-        <Card padded={false} className="h-full">
-          <View className="p-4">
-            <View className="mb-3 h-10 w-10 items-center justify-center rounded-2xl bg-accent shadow-lg">
-              <Ionicons name="navigate" size={18} className="text-onAccent" />
+        <Card padded={false} className="overflow-hidden">
+          <View className="p-4 gap-3">
+            <View
+              className="h-10 w-10 items-center justify-center rounded-2xl bg-accent"
+              style={{
+                shadowColor: "#10B981",
+                shadowOpacity: 0.4,
+                shadowRadius: 10,
+                shadowOffset: { width: 0, height: 3 },
+                elevation: 4,
+              }}
+            >
+              <Ionicons name="navigate" size={18} color={colors.onAccent} />
             </View>
-            <T size={15} weight="700">
-              Start a ride
-            </T>
-            <T size={12} muted>
-              Voice + live roster
-            </T>
-            <T size={12} weight="700" tone="accent" className="mt-3">
+            <View>
+              <T size={15} weight="700">
+                Start a ride
+              </T>
+              <T size={12} muted>
+                Voice + live roster
+              </T>
+            </View>
+            <T size={12} weight="700" tone="accent">
               Go round-up →
             </T>
           </View>
@@ -343,18 +377,20 @@ function QuickActions() {
         accessibilityLabel="New community"
         className="flex-1 active:opacity-90"
       >
-        <Card padded={false} className="h-full">
-          <View className="p-4">
-            <View className="mb-3 h-10 w-10 items-center justify-center rounded-2xl bg-raised">
-              <Ionicons name="people" size={18} className="text-ink" />
+        <Card padded={false} className="overflow-hidden">
+          <View className="p-4 gap-3">
+            <View className="h-10 w-10 items-center justify-center rounded-2xl bg-raised">
+              <Ionicons name="people" size={18} color={colors.ink} />
             </View>
-            <T size={15} weight="700">
-              New community
-            </T>
-            <T size={12} muted>
-              Route buddies & chat
-            </T>
-            <T size={12} weight="700" tone="muted" className="mt-3">
+            <View>
+              <T size={15} weight="700">
+                New community
+              </T>
+              <T size={12} muted>
+                Route buddies & chat
+              </T>
+            </View>
+            <T size={12} weight="700" tone="muted">
               Build a crew →
             </T>
           </View>

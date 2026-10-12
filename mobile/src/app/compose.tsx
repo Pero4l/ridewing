@@ -1,12 +1,25 @@
+import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { Image } from "expo-image";
 import { router } from "expo-router";
 import { useState } from "react";
-import { Pressable, ScrollView, TextInput, View } from "react-native";
+import {
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  View,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ErrorBanner } from "@/components/auth";
-import { Button, Card, Row, Screen, T } from "@/components/ui";
+import { Avatar, Screen, T } from "@/components/ui";
 import { ApiError, api, getAccessToken, getBaseUrl } from "@/lib/api";
+import { usePalette } from "@/lib/palette";
+import { useSession } from "@/lib/session";
 import type { Post, PostMedia } from "@/lib/types";
 
 /**
@@ -61,12 +74,23 @@ async function uploadImage(uri: string, mimeType: string): Promise<PostMedia> {
   throw new Error(body.error?.message ?? "Could not upload that photo.");
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+
 export default function ComposeScreen() {
+  const { colors } = usePalette();
+  const insets = useSafeAreaInsets();
+  const { user } = useSession();
+
   const [content, setContent] = useState("");
   const [media, setMedia] = useState<PostMedia[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
+
+  const ready = content.trim().length > 0 || media.length > 0;
+  const remaining = 2000 - content.length;
+
+  // ── actions ────────────────────────────────────────────────────────────────
 
   async function pickImage() {
     setError(null);
@@ -110,61 +134,276 @@ export default function ComposeScreen() {
     }
   }
 
-  const ready = content.trim().length > 0 || media.length > 0;
+  function removeMedia(index: number) {
+    setMedia((c) => c.filter((_, i) => i !== index));
+  }
+
+  // ── render ─────────────────────────────────────────────────────────────────
 
   return (
     <Screen>
-      <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }}>
-        <Card className="gap-4">
-          <TextInput
-            value={content}
-            onChangeText={setContent}
-            placeholder="What are you riding?"
-            multiline
-            maxLength={2000}
-            className="min-h-[120px] text-[16px] text-ink"
-            // Vertical alignment for the multiline box; RN has no class for it.
-            style={{ textAlignVertical: "top" }}
-          />
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={0}
+      >
+        {/* ── top toolbar ─────────────────────────────────────────────────── */}
+        <View
+          style={[
+            styles.toolbar,
+            {
+              paddingTop: insets.top + 10,
+              borderBottomColor: colors.hairline,
+              backgroundColor: colors.surface,
+            },
+          ]}
+        >
+          <Pressable
+            onPress={() => router.back()}
+            accessibilityRole="button"
+            accessibilityLabel="Cancel"
+            hitSlop={12}
+            style={styles.toolbarSide}
+          >
+            <T size={16} weight="500" color={colors.accent}>
+              Cancel
+            </T>
+          </Pressable>
 
-          {media.length ? (
-            <View className="flex-row flex-wrap gap-2">
-              {media.map((item, index) => (
-                <Pressable
-                  key={item.url}
-                  onPress={() => setMedia((c) => c.filter((_, i) => i !== index))}
-                  accessibilityRole="button"
-                  accessibilityLabel="Remove photo"
+          <T size={16} weight="700">
+            New Post
+          </T>
+
+          <View style={[styles.toolbarSide, styles.toolbarRight]}>
+            {busy ? (
+              <ActivityIndicator size="small" color={colors.onAccent} />
+            ) : (
+              <Pressable
+                onPress={publish}
+                disabled={!ready}
+                accessibilityRole="button"
+                accessibilityLabel="Post"
+                accessibilityState={{ disabled: !ready }}
+                style={[
+                  styles.postPill,
+                  {
+                    backgroundColor: ready ? colors.accent : colors.raised,
+                  },
+                ]}
+              >
+                <T
+                  size={14}
+                  weight="700"
+                  color={ready ? colors.onAccent : colors.faint}
                 >
-                  <Image
-                    source={{ uri: item.url }}
-                    className="h-24 w-24 rounded-lg bg-raised"
-                    contentFit="cover"
-                  />
-                </Pressable>
-              ))}
+                  Post
+                </T>
+              </Pressable>
+            )}
+          </View>
+        </View>
+
+        {/* ── body ────────────────────────────────────────────────────────── */}
+        <ScrollView
+          style={[styles.flex, { backgroundColor: colors.surface }]}
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          {error ? (
+            <View style={styles.errorWrap}>
+              <ErrorBanner message={error} />
             </View>
           ) : null}
 
-          <ErrorBanner message={error} />
+          {/* Avatar + text input row */}
+          <View style={styles.inputRow}>
+            <Avatar user={user} size={40} />
 
-          <Row className="justify-between">
-            <Button
-              label={uploading ? "Uploading…" : "Add photo"}
-              icon="image-outline"
-              variant="secondary"
-              loading={uploading}
-              disabled={media.length >= 9}
-              onPress={pickImage}
+            <TextInput
+              value={content}
+              onChangeText={setContent}
+              placeholder="What are you riding?"
+              placeholderTextColor={colors.faint}
+              multiline
+              maxLength={2000}
+              autoFocus
+              style={[
+                styles.textInput,
+                { color: colors.ink },
+              ]}
+              textAlignVertical="top"
             />
-            <Button label="Post" onPress={publish} loading={busy} disabled={!ready} />
-          </Row>
+          </View>
 
-          <T size={11} muted>
-            {content.length}/2000 · {media.length}/9 photos
+          {/* Photo strip */}
+          {media.length > 0 ? (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.photoStrip}
+            >
+              {media.map((item, index) => (
+                <View key={item.url} style={styles.thumbWrap}>
+                  <Image
+                    source={{ uri: item.url }}
+                    style={styles.thumb}
+                    contentFit="cover"
+                  />
+                  {/* Remove overlay */}
+                  <Pressable
+                    onPress={() => removeMedia(index)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Remove photo"
+                    style={[
+                      styles.removeBtn,
+                      { backgroundColor: colors.ink + "CC" },
+                    ]}
+                  >
+                    <Ionicons name="close" size={12} color={colors.surface} />
+                  </Pressable>
+                </View>
+              ))}
+            </ScrollView>
+          ) : null}
+        </ScrollView>
+
+        {/* ── bottom toolbar ───────────────────────────────────────────────── */}
+        <View
+          style={[
+            styles.bottomBar,
+            {
+              paddingBottom: insets.bottom + 8,
+              borderTopColor: colors.hairline,
+              backgroundColor: colors.surface,
+            },
+          ]}
+        >
+          <Pressable
+            onPress={pickImage}
+            disabled={uploading || media.length >= 9}
+            accessibilityRole="button"
+            accessibilityLabel={uploading ? "Uploading photo…" : "Add photo"}
+            hitSlop={8}
+            style={[
+              styles.photoBtn,
+              (uploading || media.length >= 9) && styles.photoBtnDisabled,
+            ]}
+          >
+            {uploading ? (
+              <ActivityIndicator size="small" color={colors.accent} />
+            ) : (
+              <Ionicons
+                name="image-outline"
+                size={24}
+                color={media.length >= 9 ? colors.faint : colors.accent}
+              />
+            )}
+          </Pressable>
+
+          <T size={12} color={remaining < 100 ? colors.warning : colors.faint}>
+            {remaining}
           </T>
-        </Card>
-      </ScrollView>
+        </View>
+      </KeyboardAvoidingView>
     </Screen>
   );
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+const THUMB_SIZE = 80;
+
+const styles = StyleSheet.create({
+  flex: {
+    flex: 1,
+  },
+  // Top toolbar
+  toolbar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  toolbarSide: {
+    width: 80,
+  },
+  toolbarRight: {
+    alignItems: "flex-end",
+  },
+  postPill: {
+    paddingHorizontal: 18,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  // Scroll body
+  scrollContent: {
+    flexGrow: 1,
+    paddingBottom: 16,
+  },
+  errorWrap: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+  },
+  // Avatar + input row
+  inputRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+  },
+  textInput: {
+    flex: 1,
+    fontSize: 16,
+    lineHeight: 24,
+    minHeight: 120,
+    paddingTop: 0, // align baseline with avatar top
+  },
+  // Photo strip
+  photoStrip: {
+    flexDirection: "row",
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 4,
+  },
+  thumbWrap: {
+    position: "relative",
+    width: THUMB_SIZE,
+    height: THUMB_SIZE,
+    borderRadius: 10,
+    overflow: "hidden",
+  },
+  thumb: {
+    width: THUMB_SIZE,
+    height: THUMB_SIZE,
+  },
+  removeBtn: {
+    position: "absolute",
+    top: 4,
+    right: 4,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  // Bottom toolbar
+  bottomBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  photoBtn: {
+    padding: 4,
+  },
+  photoBtnDisabled: {
+    opacity: 0.4,
+  },
+});

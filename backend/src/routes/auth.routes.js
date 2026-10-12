@@ -23,10 +23,10 @@ const router = express.Router();
 // Admin-only signup. Returns 404 when ADMIN_REGISTER_TOKEN is unset, so the
 // surface is identical to a missing route and cannot be probed for existence.
 router.post(
-  '/admin/register',
+  '',
   writeLimiter,
   validate({ body: authValidator.adminRegister }),
-  authController.registerAdmin,
+  authController.registerA/admin/registerdmin,
 );
 
 router.post(

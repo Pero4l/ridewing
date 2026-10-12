@@ -114,7 +114,7 @@ export function RiderPicker({
               className="flex-row items-center gap-2 rounded-md bg-raised px-3 py-2.5"
               style={styles.hairline}
             >
-              <Ionicons name="search" size={16} className="text-faint" />
+              <Ionicons name="search" size={16} color={colors.faint} />
               <TextInput
                 value={query}
                 onChangeText={setQuery}
@@ -124,7 +124,7 @@ export function RiderPicker({
                 autoCorrect={false}
                 style={{ flex: 1, fontSize: 15, color: colors.ink }}
               />
-              {loading ? <ActivityIndicator size="small" className="text-accent" /> : null}
+              {loading ? <ActivityIndicator size="small" color={colors.accent} /> : null}
             </View>
             {friendsOnly && query.trim().length === 1 ? (
               <T size={11} tone="muted" className="mt-1">
@@ -147,7 +147,7 @@ export function RiderPicker({
                   accessibilityLabel={`Choose ${rider.displayName}`}
                   style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
                 >
-                  <Row gap={12} className="border-b border-border px-4 py-3">
+                  <Row gap={12} className="border-b border-hairline px-4 py-3">
                     <Avatar user={rider} size={40} />
                     <View className="flex-1">
                       <T size={15} weight="600" numberOfLines={1}>
@@ -158,7 +158,7 @@ export function RiderPicker({
                         {rider.bio ? ` · ${rider.bio}` : ""}
                       </T>
                     </View>
-                    <Ionicons name="chevron-forward" size={18} className="text-faint" />
+                    <Ionicons name="chevron-forward" size={18} color={colors.faint} />
                   </Row>
                 </Pressable>
               ))

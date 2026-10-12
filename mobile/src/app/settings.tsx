@@ -3,12 +3,25 @@
  * state updates it triggers all land after an `await`, so there is no synchronous
  * setState during render. The rule cannot see across the async boundary.
  */
+import { Ionicons } from "@expo/vector-icons";
+import Constants from "expo-constants";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
-import { Alert, ScrollView, View } from "react-native";
+import { Alert, ScrollView, StyleSheet, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ErrorBanner } from "@/components/auth";
-import { Badge, Button, Card, Divider, Field, Row, Screen, T } from "@/components/ui";
+import {
+  Avatar,
+  Badge,
+  Button,
+  Card,
+  Divider,
+  Field,
+  ListRow,
+  Screen,
+  T,
+} from "@/components/ui";
 import {
   ApiError,
   api,
@@ -18,39 +31,34 @@ import {
   onBaseUrlChange,
   setBaseUrl,
 } from "@/lib/api";
-import { isPasswordValid, PASSWORD_HINT } from "@/lib/validation";
+import { usePalette } from "@/lib/palette";
 import { useSession } from "@/lib/session";
-import Constants from "expo-constants";
+import { isPasswordValid, PASSWORD_HINT } from "@/lib/validation";
 
 export default function SettingsScreen() {
+  const insets = useSafeAreaInsets();
+  const { colors } = usePalette();
   const { user, logout } = useSession();
 
+  // ── server URL ────────────────────────────────────────────────────────────
   const [baseUrl, setBaseUrlState] = useState(getBaseUrl());
   const [draftUrl, setDraftUrl] = useState(getBaseUrl());
   const [probe, setProbe] = useState<{ ok: boolean; detail: string } | null>(null);
   const [probing, setProbing] = useState(false);
 
-  // The base URL can change from Settings, so mirror it rather than reading it once.
-  useEffect(() => onBaseUrlChange(() => {
-    setBaseUrlState(getBaseUrl());
-    setDraftUrl(getBaseUrl());
-  }), []);
-
-  const [current, setCurrent] = useState("");
-  const [next, setNext] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState(false);
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    if (done) setDone(false);
-  }, [done]);
+  useEffect(
+    () =>
+      onBaseUrlChange(() => {
+        setBaseUrlState(getBaseUrl());
+        setDraftUrl(getBaseUrl());
+      }),
+    [],
+  );
 
   async function testConnection() {
     setProbing(true);
     setProbe(null);
     try {
-      // Apply the draft first so the probe tests what they just typed.
       if (draftUrl.trim() !== baseUrl) await setBaseUrl(draftUrl);
       setProbe(await checkConnection());
     } finally {
@@ -58,104 +66,123 @@ export default function SettingsScreen() {
     }
   }
 
+  // ── change password ───────────────────────────────────────────────────────
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [passwordBusy, setPasswordBusy] = useState(false);
+
   async function changePassword() {
-    setError(null);
+    setPasswordError(null);
     if (!isPasswordValid(next)) {
-      setError(PASSWORD_HINT);
+      setPasswordError(PASSWORD_HINT);
       return;
     }
-    setBusy(true);
+    setPasswordBusy(true);
     try {
-      await api.post("/api/auth/change-password", { currentPassword: current, newPassword: next });
-      // The backend revokes every session on a password change, so the stored
-      // refresh cookie is dead — sign out cleanly rather than leaving the app in
-      // a half-authed state.
+      await api.post("/api/auth/change-password", {
+        currentPassword: current,
+        newPassword: next,
+      });
       Alert.alert("Password updated", "Sign in again with your new password.", [
         { text: "OK", onPress: () => void logout() },
       ]);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not update your password.");
+      setPasswordError(
+        err instanceof ApiError ? err.message : "Could not update your password.",
+      );
     } finally {
-      setBusy(false);
+      setPasswordBusy(false);
     }
   }
 
+  const version =
+    (Constants.expoConfig?.version as string | undefined) ?? "dev";
+
   return (
     <Screen>
-      <ScrollView contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 40 }}>
-        <Card className="gap-3">
-          <Row className="justify-between">
-            <T size={16} weight="700">
-              Account
-            </T>
-            {user?.role === "admin" ? <Badge label="ADMIN" tone="accent" /> : null}
-          </Row>
-          <Divider />
-          <View className="gap-1">
-            <T size={13} tone="muted">
-              Signed in as
-            </T>
-            <T size={15} weight="600">
-              @{user?.username}
-            </T>
-          </View>
-          {user?.email ? (
-            <View className="gap-1">
-              <T size={13} tone="muted">
-                Email
-              </T>
-              <T size={15}>{user.email}</T>
-            </View>
-          ) : null}
-          <Button
-            label="View public profile"
-            variant="secondary"
+      <ScrollView
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={[
+          styles.scroll,
+          { paddingTop: insets.top + 16 },
+        ]}
+      >
+        {/* ── Large title ─────────────────────────────────────────────── */}
+        <T size={32} weight="800" style={styles.pageTitle}>
+          Settings
+        </T>
+
+        {/* ══ ACCOUNT ══════════════════════════════════════════════════ */}
+        <T size={11} weight="700" style={[styles.sectionLabel, { color: colors.muted }]}>
+          ACCOUNT
+        </T>
+        <Card padded={false} style={styles.group}>
+          <ListRow
+            title={user?.displayName ?? user?.username ?? ""}
+            subtitle={user?.email ?? `@${user?.username ?? ""}`}
+            icon={undefined}
+            showChevron
             onPress={() => router.push(`/profile/${user?.username ?? ""}`)}
+            right={
+              <View style={styles.accountRight}>
+                {user?.role === "admin" ? (
+                  <Badge label="ADMIN" tone="accent" />
+                ) : null}
+                <Avatar user={user} size={36} />
+              </View>
+            }
           />
         </Card>
 
-        <Card className="gap-3.5">
-          <T size={16} weight="700">
+        {/* ══ SECURITY ═════════════════════════════════════════════════ */}
+        <T size={11} weight="700" style={[styles.sectionLabel, { color: colors.muted }]}>
+          SECURITY
+        </T>
+        <Card style={styles.group}>
+          <T size={15} weight="600" style={styles.groupHeading}>
             Change password
           </T>
-          <Field
-            label="Current password"
-            value={current}
-            onChangeText={setCurrent}
-            secureTextEntry
-            autoCapitalize="none"
-            textContentType="password"
-          />
-          <Field
-            label="New password"
-            value={next}
-            onChangeText={setNext}
-            secureTextEntry
-            autoCapitalize="none"
-            textContentType="newPassword"
-            hint={PASSWORD_HINT}
-          />
-          <ErrorBanner message={error} />
+          <View style={styles.fieldStack}>
+            <Field
+              label="Current password"
+              value={current}
+              onChangeText={setCurrent}
+              secureTextEntry
+              autoCapitalize="none"
+              textContentType="password"
+            />
+            <Field
+              label="New password"
+              value={next}
+              onChangeText={setNext}
+              secureTextEntry
+              autoCapitalize="none"
+              textContentType="newPassword"
+              hint={PASSWORD_HINT}
+            />
+          </View>
+          <ErrorBanner message={passwordError} />
           <Button
             label="Update password"
             onPress={changePassword}
-            loading={busy}
+            loading={passwordBusy}
             disabled={!current || !isPasswordValid(next)}
           />
-          <T size={11} tone="muted">
+          <T size={11} tone="muted" style={styles.caption}>
             Changing your password signs out every device.
           </T>
         </Card>
 
-        <Card className="gap-3">
-          <T size={16} weight="700">
-            Server
-          </T>
-          <T size={12} tone="muted">
+        {/* ══ SERVER ═══════════════════════════════════════════════════ */}
+        <T size={11} weight="700" style={[styles.sectionLabel, { color: colors.muted }]}>
+          SERVER
+        </T>
+        <Card style={styles.group}>
+          <T size={13} tone="muted" style={styles.groupHint}>
             Where this app looks for RideWing. Change it if you are testing on a
             device or emulator where localhost is not your computer.
           </T>
-
           <Field
             label="API base URL"
             value={draftUrl}
@@ -165,8 +192,7 @@ export default function SettingsScreen() {
             keyboardType="url"
             placeholder="http://192.168.1.20:4000"
           />
-
-          <Row gap={10}>
+          <View style={styles.row}>
             <Button
               label="Test & save"
               style={{ flex: 1 }}
@@ -181,59 +207,174 @@ export default function SettingsScreen() {
                 setProbe(null);
               }}
             />
-          </Row>
+          </View>
 
           {probe ? (
             <View
-              className={`rounded-md px-3 py-3 ${probe.ok ? "bg-accentSoft" : "bg-dangerSoft"}`}
+              style={[
+                styles.probeBox,
+                { backgroundColor: probe.ok ? colors.accentSoft : colors.dangerSoft },
+              ]}
             >
-              <T size={13} weight="600" tone={probe.ok ? "accent" : "danger"}>
-                {probe.ok ? "Connected" : "Not reachable"}
-              </T>
+              <View style={styles.probeRow}>
+                <Ionicons
+                  name={probe.ok ? "checkmark-circle" : "close-circle"}
+                  size={16}
+                  color={probe.ok ? colors.accent : colors.danger}
+                />
+                <T size={13} weight="600" tone={probe.ok ? "accent" : "danger"}>
+                  {probe.ok ? "Connected" : "Not reachable"}
+                </T>
+              </View>
               <T size={12} tone="muted">
                 {probe.detail}
               </T>
               {!probe.ok ? (
-                <T size={12} tone="muted" className="mt-1">
-                  Android emulator: use http://10.0.2.2:4000. Physical device: use your
-                  computer&apos;s LAN IP, and make sure both are on the same Wi-Fi.
+                <T size={12} tone="muted" style={styles.probeHint}>
+                  Android emulator: use http://10.0.2.2:4000. Physical device:
+                  use your computer&apos;s LAN IP, and make sure both are on the
+                  same Wi-Fi.
                 </T>
               ) : null}
             </View>
           ) : null}
 
           <Divider />
-          <View className="gap-1">
-            <T size={13} tone="muted">
+
+          <View style={styles.infoRow}>
+            <T size={13} tone="muted" style={styles.infoLabel}>
               In use
             </T>
-            <T size={13}>{baseUrl}</T>
+            <T size={13} style={styles.infoValue} numberOfLines={1}>
+              {baseUrl}
+            </T>
           </View>
-          <View className="gap-1">
-            <T size={13} tone="muted">
+        </Card>
+
+        {/* ══ ABOUT ════════════════════════════════════════════════════ */}
+        <T size={11} weight="700" style={[styles.sectionLabel, { color: colors.muted }]}>
+          ABOUT
+        </T>
+        <Card padded={false} style={styles.group}>
+          <View style={styles.aboutRow}>
+            <T size={15} weight="400">
               App version
             </T>
-            <T size={13}>
-              {(Constants.expoConfig?.version as string) ?? "dev"}
-              {__DEV__ ? " · development" : ""}
+            <T size={15} tone="muted">
+              {version}
+              {__DEV__ ? " · dev" : ""}
             </T>
           </View>
-          <View className="gap-1">
-            <T size={13} tone="muted">
+          <Divider />
+          <View style={[styles.aboutRow, styles.aboutRowLast]}>
+            <T size={15} weight="400">
               Device binding
             </T>
-            <T size={13} numberOfLines={1}>
+            <T size={13} tone="muted" numberOfLines={1} style={styles.deviceId}>
               {getDeviceId() ?? "not generated"}
             </T>
           </View>
-          <T size={11} tone="muted">
-            The device id binds your session to this install, so a copied cookie from
-            another device is rejected.
-          </T>
         </Card>
 
-        <Button label="Sign out" variant="secondary" onPress={() => void logout()} />
+        <T size={11} tone="muted" style={styles.deviceHint}>
+          The device id binds your session to this install, so a copied cookie
+          from another device is rejected.
+        </T>
       </ScrollView>
     </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  scroll: {
+    paddingHorizontal: 16,
+    paddingBottom: 48,
+    gap: 4,
+  },
+  pageTitle: {
+    marginBottom: 20,
+    letterSpacing: -0.5,
+  },
+  sectionLabel: {
+    marginBottom: 6,
+    marginTop: 20,
+    marginLeft: 4,
+    letterSpacing: 0.6,
+  },
+  group: {
+    gap: 0,
+    overflow: "hidden",
+  },
+  groupHeading: {
+    marginBottom: 12,
+  },
+  groupHint: {
+    marginBottom: 12,
+  },
+  fieldStack: {
+    gap: 12,
+    marginBottom: 12,
+  },
+  caption: {
+    marginTop: 6,
+  },
+  accountRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  row: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 10,
+  },
+  probeBox: {
+    marginTop: 12,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 4,
+  },
+  probeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  probeHint: {
+    marginTop: 4,
+  },
+  infoRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingTop: 12,
+    gap: 8,
+  },
+  infoLabel: {
+    flexShrink: 0,
+  },
+  infoValue: {
+    flex: 1,
+    textAlign: "right",
+  },
+  aboutRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 8,
+  },
+  aboutRowLast: {
+    // extra space only needed if more rows follow; here it's fine as-is
+  },
+  deviceId: {
+    flex: 1,
+    textAlign: "right",
+  },
+  deviceHint: {
+    marginTop: 8,
+    marginHorizontal: 4,
+    lineHeight: 17,
+  },
+});

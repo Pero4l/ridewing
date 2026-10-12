@@ -1,19 +1,22 @@
-/* eslint-disable react-hooks/set-state-in-effect --
- * These screens load data on mount. The effect only *starts* an async fetch;
- * the state updates it triggers all land after an `await`, so there is no
- * synchronous setState during render. The rule cannot see across the async
- * boundary and flags the fetch helper instead.
- */
-import { useLocalSearchParams } from "expo-router";
+/* eslint-disable react-hooks/set-state-in-effect */
+import { Ionicons } from "@expo/vector-icons";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FlatList, KeyboardAvoidingView, Platform, Pressable, TextInput, View } from "react-native";
+import {
+  FlatList,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  StyleSheet,
+  TextInput,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Divider, Spinner, T } from "@/components/ui";
-import { Ionicons } from "@expo/vector-icons";
 import { ApiError, api } from "@/lib/api";
-import { messageTime } from "@/lib/format";
 import { usePalette } from "@/lib/palette";
+import { messageTime } from "@/lib/format";
 import { emitWithAck, onSocketEvent } from "@/lib/socket";
 import type { Message, Page } from "@/lib/types";
 
@@ -23,6 +26,7 @@ function newNonce() {
 
 export default function ThreadScreen() {
   const { conversationId } = useLocalSearchParams<{ conversationId: string }>();
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const { colors } = usePalette();
 
@@ -37,15 +41,10 @@ export default function ThreadScreen() {
 
   const load = useCallback(async () => {
     try {
-      // `/conversations` returns a bare `{ conversations }`, not a page.
-      const res = await api.get<{
-        conversations: { id: string; title: string }[];
-      }>("/api/conversations");
+      const res = await api.get<{ conversations: { id: string; title: string }[] }>("/api/conversations");
       const found = res.conversations.find((c) => c.id === conversationId);
       if (found) setTitle(found.title);
-    } catch {
-      // The header is decorative; a failure here must not block the thread.
-    }
+    } catch { /* header is decorative */ }
 
     try {
       const page = await api.get<Page<Message>>(
@@ -60,22 +59,14 @@ export default function ThreadScreen() {
     }
   }, [conversationId]);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
-  // Sitting in the thread is what makes the unread badge clear.
   useEffect(() => {
     void emitWithAck("conversation:join", { conversationId }).catch(() => {});
     void api.post(`/api/conversations/${conversationId}/read`).catch(() => {});
-    return () => {
-      void emitWithAck("conversation:leave", { conversationId }).catch(() => {});
-    };
+    return () => { void emitWithAck("conversation:leave", { conversationId }).catch(() => {}); };
   }, [conversationId]);
 
-  // Reconcile optimistic sends against the confirmed message, and append new
-  // arrivals. Matching on `clientNonce` is what stops a sent message appearing
-  // twice (once optimistic, once from the socket echo).
   const acceptMessage = useCallback((incoming: Message) => {
     setMessages((current) => {
       const index = current.findIndex((m) =>
@@ -83,12 +74,7 @@ export default function ThreadScreen() {
       );
       if (index === -1) return [...current, incoming];
       const next = [...current];
-      next[index] = {
-        ...next[index],
-        ...incoming,
-        pending: false,
-        failed: false,
-      };
+      next[index] = { ...next[index], ...incoming, pending: false, failed: false };
       return next;
     });
   }, []);
@@ -139,23 +125,43 @@ export default function ThreadScreen() {
     }
   }
 
+  const canSend = draft.trim().length > 0 && !sending;
+
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
-      className="flex-1 bg-canvas"
+      keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
+      style={{ flex: 1, backgroundColor: colors.canvas }}
     >
-      <View className="border-b border-border px-4 py-2.5">
-        <T size={16} weight="700" numberOfLines={1}>
+      {/* Custom header — replaces the native header so we can put a back
+          button and the conversation title in one row */}
+      <View
+        style={[
+          styles.threadHeader,
+          {
+            paddingTop: insets.top + 10,
+            backgroundColor: colors.surface,
+            borderBottomColor: colors.hairline,
+          },
+        ]}
+      >
+        <Pressable
+          onPress={() => router.back()}
+          hitSlop={12}
+          accessibilityRole="button"
+          accessibilityLabel="Back"
+          style={styles.backBtn}
+        >
+          <Ionicons name="chevron-back" size={26} color={colors.accent} />
+        </Pressable>
+        <T size={17} weight="700" numberOfLines={1} style={{ flex: 1 }}>
           {title}
         </T>
       </View>
 
       {error ? (
-        <View className="px-4 pt-2">
-          <T size={12} tone="danger">
-            {error}
-          </T>
+        <View style={{ paddingHorizontal: 16, paddingTop: 8 }}>
+          <T size={12} tone="danger">{error}</T>
         </View>
       ) : null}
 
@@ -166,30 +172,56 @@ export default function ThreadScreen() {
           ref={listRef}
           data={messages}
           keyExtractor={(item) => item.id}
-          // `FlatList` has no `className` for its content container, so the
-          // scroll padding and gap stay inline.
-          contentContainerStyle={{ padding: 16, gap: 8, paddingBottom: 12 }}
+          contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 12, gap: 6 }}
           onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
-          renderItem={({ item }) => {
+          renderItem={({ item, index }) => {
             const mine = item.senderId === "me" || item.sender?.username === undefined;
-            // Own bubbles sit on the accent surface, theirs on the muted raised
-            // surface. Both pairs are semantic tokens, so the dark scheme swaps
-            // the surface *and* the on-surface text together.
+            const prevItem = index > 0 ? messages[index - 1] : null;
+            const prevMine = prevItem
+              ? prevItem.senderId === "me" || prevItem.sender?.username === undefined
+              : null;
+            // Show timestamp when sender changes or after a gap of >5 min
+            const showTime =
+              prevMine !== mine ||
+              (prevItem &&
+                new Date(item.createdAt).getTime() -
+                  new Date(prevItem.createdAt).getTime() >
+                  5 * 60 * 1000);
+
             return (
-              <View className={mine ? "items-end" : "items-start"}>
-                <View
-                  className={`max-w-[80%] rounded-2xl px-3.5 py-2.5 ${
-                    mine
-                      ? "rounded-br-md bg-accent"
-                      : "rounded-bl-md bg-raised"
-                  } ${item.pending ? "opacity-60" : ""}`}
-                >
-                  <T size={15} className={mine ? "text-onAccent" : "text-ink"}>
-                    {item.content}
+              <View>
+                {showTime ? (
+                  <T
+                    size={11}
+                    tone="muted"
+                    style={{ textAlign: "center", marginVertical: 8 }}
+                  >
+                    {messageTime(item.createdAt)}
                   </T>
-                  <T size={10} className={`mt-[3px] ${mine ? "text-onAccent/70" : "text-faint"}`}>
-                    {item.failed ? "not sent" : messageTime(item.createdAt)}
-                  </T>
+                ) : null}
+
+                <View style={[styles.bubbleRow, mine ? styles.bubbleRowMine : styles.bubbleRowTheirs]}>
+                  <View
+                    style={[
+                      styles.bubble,
+                      mine
+                        ? [styles.bubbleMine, { backgroundColor: colors.accent }]
+                        : [styles.bubbleTheirs, { backgroundColor: colors.raised }],
+                      item.pending ? { opacity: 0.55 } : null,
+                    ]}
+                  >
+                    <T
+                      size={15}
+                      style={{ color: mine ? colors.onAccent : colors.ink, lineHeight: 21 } as never}
+                    >
+                      {item.content}
+                    </T>
+                    {item.failed ? (
+                      <T size={11} style={{ color: colors.danger, marginTop: 2 } as never}>
+                        Not sent · tap to retry
+                      </T>
+                    ) : null}
+                  </View>
                 </View>
               </View>
             );
@@ -197,39 +229,112 @@ export default function ThreadScreen() {
         />
       )}
 
+      {/* Input bar */}
       <Divider />
-
       <View
-        className="flex-row items-end gap-2 bg-surface px-3 pt-3"
-        // Only the safe-area padding is dynamic, so it stays inline.
-        style={{ paddingBottom: insets.bottom + 12 }}
+        style={[
+          styles.inputBar,
+          {
+            backgroundColor: colors.surface,
+            paddingBottom: insets.bottom + 10,
+          },
+        ]}
       >
         <TextInput
           value={draft}
           onChangeText={setDraft}
-          placeholder="Message"
+          placeholder="iMessage"
           placeholderTextColor={colors.faint}
           multiline
-          className="max-h-[120px] flex-1 rounded-2xl bg-raised px-3.5 py-2.5 text-[15px] text-ink"
+          maxLength={2000}
+          style={[
+            styles.input,
+            {
+              backgroundColor: colors.raised,
+              color: colors.ink,
+              borderColor: colors.hairline,
+            },
+          ]}
+          onSubmitEditing={send}
+          blurOnSubmit={false}
         />
         <Pressable
           onPress={send}
-          disabled={!draft.trim() || sending}
+          disabled={!canSend}
           accessibilityRole="button"
-          accessibilityLabel="Send"
-          // `active:` is constant so the Pressable upgrade happens on the
-          // first render only; the fill is a plain utility and may toggle.
-          className={`h-[42px] w-[42px] items-center justify-center rounded-full active:opacity-80 ${
-            draft.trim() ? "bg-accent" : "bg-raised"
-          }`}
+          accessibilityLabel="Send message"
+          style={[
+            styles.sendBtn,
+            { backgroundColor: canSend ? colors.accent : colors.raised },
+          ]}
         >
           <Ionicons
             name="arrow-up"
             size={20}
-            className={draft.trim() ? "text-onAccent" : "text-faint"}
+            color={canSend ? colors.onAccent : colors.faint}
           />
         </Pressable>
       </View>
     </KeyboardAvoidingView>
   );
 }
+
+const styles = StyleSheet.create({
+  threadHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingBottom: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  backBtn: {
+    padding: 4,
+  },
+  bubbleRow: {
+    flexDirection: "row",
+  },
+  bubbleRowMine: {
+    justifyContent: "flex-end",
+  },
+  bubbleRowTheirs: {
+    justifyContent: "flex-start",
+  },
+  bubble: {
+    maxWidth: "78%",
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 20,
+  },
+  bubbleMine: {
+    borderBottomRightRadius: 5,
+  },
+  bubbleTheirs: {
+    borderBottomLeftRadius: 5,
+  },
+  inputBar: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingTop: 10,
+  },
+  input: {
+    flex: 1,
+    borderRadius: 22,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 10,
+    fontSize: 15,
+    maxHeight: 120,
+    lineHeight: 20,
+  },
+  sendBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+});

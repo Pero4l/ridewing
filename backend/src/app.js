@@ -69,9 +69,19 @@ app.use(
     },
     credentials: true, // required for the refresh cookie
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    // `X-Device-Id` binds refresh-token rotation to a device, so the browser and the
-// mobile client both send it — hence the explicit allow-list. `X-Admin-Token` is
-// deliberately absent: an admin credential must not be suppliable cross-origin.
+    // `X-Device-Id` binds refresh-token rotation to a device, so both the web app
+    // and the mobile client send it on every request — it must be in the
+    // `allowedHeaders` list or the browser / React Native will strip it before the
+    // request reaches the server. `X-Admin-Token` is deliberately absent: an admin
+    // credential must not be suppliable cross-origin.
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'X-Device-Id',
+      'X-Request-Id',
+      'Accept',
+    ],
+    exposedHeaders: ['X-Request-Id'],
     maxAge: 86400,
   }),
 );
