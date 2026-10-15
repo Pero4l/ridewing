@@ -7,6 +7,7 @@ import type { NextConfig } from "next";
 
 const isDev = process.env.NODE_ENV !== "production";
 const cdnHosts = ["https://res.cloudinary.com"];
+const nextPublicApiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
@@ -51,7 +52,7 @@ const nextConfig: NextConfig = {
           // An app whose UI is voice, PTT and "I need help" must not be
           // clickjacked — a transparent overlay over those buttons is a
           // safety issue, not just a UI one.
-          { key: "Content-Security-Policy", value: contentSecurityPolicy(cdnHosts) },
+          { key: "Content-Security-Policy", value: contentSecurityPolicy(cdnHosts, nextPublicApiUrl) },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
           { key: "Permissions-Policy", value: "camera=(), geolocation=()" },
           ...(isDev
@@ -78,7 +79,7 @@ const nextConfig: NextConfig = {
  * uses eval or inline script beyond the theme bootstrap, which is served as its
  * own file.
  */
-function contentSecurityPolicy(cdn: string[]) {
+function contentSecurityPolicy(cdn: string[], apiUrl: string) {
   const img = ["'self'", "data:", "blob:", ...cdn].join(" ");
   return [
     "default-src 'self'",
@@ -87,7 +88,7 @@ function contentSecurityPolicy(cdn: string[]) {
     `img-src ${img}`,
     `media-src ${img}`,
     "font-src 'self' data:",
-    "connect-src 'self'",
+    `connect-src 'self' ${apiUrl}`,
     "worker-src 'self' blob:",
     "manifest-src 'self'",
     "object-src 'none'",
