@@ -1,53 +1,60 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 import { Ionicons } from "@expo/vector-icons";
+import { Image } from "expo-image";
 import { router } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Alert, FlatList, Pressable, Share, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import {
-  Avatar,
-  Badge,
-  Button,
-  Divider,
-  ListRow,
-  Screen,
-  Spinner,
-  T,
-} from "@/components/ui";
+import { Avatar, Divider, ListRow, Screen, Spinner, T, VerifiedTick } from "@/components/ui";
 import { api } from "@/lib/api";
 import { usePalette } from "@/lib/palette";
-import { bikeLabel } from "@/lib/format";
 import { useSession } from "@/lib/session";
+import type { Page, Post } from "@/lib/types";
+
+type Tab = "grid" | "rides" | "saved";
 
 export default function ProfileScreen() {
-  const { user, logout, refreshUser } = useSession();
+  const { user, logout } = useSession();
   const insets = useSafeAreaInsets();
   const { colors } = usePalette();
+  const { width } = useWindowDimensions();
 
   const [counts, setCounts] = useState({ posts: 0, followers: 0, following: 0 });
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [tab, setTab] = useState<Tab>("grid");
 
   const load = useCallback(async () => {
     if (!user) return;
     try {
-      const res = await api.get<{
-        user: { followerCount: number; followingCount: number; postCount: number };
-      }>(`/api/users/${user.username}`);
+      const [profileRes, postRes] = await Promise.all([
+        api.get<{
+          user: { followerCount: number; followingCount: number; postCount: number };
+        }>(`/api/users/${user.username}`),
+        api.get<Page<Post>>(`/api/users/${user.username}/posts?tab=posts&limit=30`),
+      ]);
       setCounts({
-        posts: res.user.postCount,
-        followers: res.user.followerCount,
-        following: res.user.followingCount,
+        posts: profileRes.user.postCount,
+        followers: profileRes.user.followerCount,
+        following: profileRes.user.followingCount,
       });
-    } catch { /* counts are supplementary */ }
+      setPosts(postRes.items);
+    } catch {
+      // counts are supplementary
+    }
   }, [user]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   if (!user) {
-    return <Screen><Spinner /></Screen>;
+    return (
+      <Screen>
+        <Spinner />
+      </Screen>
+    );
   }
-
-  const bike = bikeLabel(user.bikeInfo ?? {});
 
   function confirmSignOut() {
     Alert.alert("Sign out?", "You can sign back in any time.", [
@@ -56,192 +63,303 @@ export default function ProfileScreen() {
     ]);
   }
 
+  async function shareProfile() {
+    try {
+      await Share.share({ message: `Follow me on RideWing: @${user?.username ?? "rider"}` });
+    } catch {
+      // dismissed
+    }
+  }
+
+  const cell = (width - 2) / 3;
+  const gridPosts = posts.filter((p) => p.media.length > 0);
+
   return (
     <Screen>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
+      <FlatList
+        data={tab === "grid" ? gridPosts : []}
+        keyExtractor={(item) => item.id}
+        numColumns={3}
+        columnWrapperStyle={tab === "grid" && gridPosts.length ? { gap: 1.5 } : undefined}
         contentContainerStyle={{ paddingBottom: insets.bottom + 96 }}
-      >
-        {/* ── Top safe-area band ──────────────────────────────────── */}
-        <View style={{ height: insets.top + 8, backgroundColor: colors.surface }} />
-
-        {/* ── Identity card ───────────────────────────────────────── */}
-        <View style={[styles.identityCard, { backgroundColor: colors.surface }]}>
-          {/* Header row: avatar + stats */}
-          <View style={styles.identityTop}>
-            {/* Avatar with accent ring */}
-            <View style={[styles.avatarRing, { borderColor: colors.accent }]}>
-              <Avatar user={user} size={80} />
-            </View>
-
-            {/* Stats */}
-            <View style={styles.statsRow}>
-              <StatPill value={counts.posts} label="Posts" />
-              <StatPill value={counts.followers} label="Followers" />
-              <StatPill value={counts.following} label="Following" />
-            </View>
-          </View>
-
-          {/* Name / username / bio */}
-          <View style={styles.nameBlock}>
-            <View style={styles.nameRow}>
-              <T size={18} weight="800" style={{ letterSpacing: -0.3 }}>
-                {user.displayName}
-              </T>
-              {user.emailVerifiedAt ? (
-                <Ionicons name="checkmark-circle" size={18} color={colors.accent} />
-              ) : null}
-            </View>
-            <T size={13} tone="muted">@{user.username}</T>
-            {user.bio ? <T size={14} style={{ marginTop: 5, lineHeight: 20 }}>{user.bio}</T> : null}
-            {bike ? (
-              <View style={styles.bikeRow}>
-                <Ionicons name="bicycle-outline" size={14} color={colors.muted} />
-                <T size={13} tone="muted">{bike}</T>
-              </View>
-            ) : null}
-            {user.role === "admin" ? (
-              <View style={{ marginTop: 6 }}>
-                <Badge label="ADMIN" tone="accent" />
-              </View>
-            ) : null}
-          </View>
-
-          {/* Action buttons */}
-          <View style={styles.actionRow}>
-            <Button
-              label="Edit profile"
-              variant="secondary"
-              style={{ flex: 1 }}
-              onPress={() => router.push(`/profile/${user.username}`)}
-            />
-            <Button
-              label="Share profile"
-              variant="secondary"
-              icon="share-outline"
-              style={{ flex: 1 }}
-              onPress={() => router.push(`/profile/${user.username}`)}
-            />
-          </View>
-        </View>
-
-        <Divider />
-
-        {/* ── Settings list ───────────────────────────────────────── */}
-        <View style={{ backgroundColor: colors.canvas, paddingTop: 8, gap: 2 }}>
-          {/* Section: Activity */}
-          <View style={[styles.section, { backgroundColor: colors.surface }]}>
-            <ListRow
-              title="Notifications"
-              icon="notifications-outline"
-              iconTone="accent"
-              onPress={() => router.push("/notifications")}
-            />
-            <Divider className="mx-4" />
-            <ListRow
-              title="Groups"
-              icon="people-outline"
-              onPress={() => router.push("/(tabs)/communities")}
-            />
-          </View>
-
-          {/* Section: Account */}
-          <View style={[styles.section, { backgroundColor: colors.surface }]}>
-            <ListRow
-              title="Settings"
-              icon="settings-outline"
-              onPress={() => router.push("/settings")}
-            />
-            <Divider className="mx-4" />
-            <ListRow
-              title="Support"
-              icon="help-circle-outline"
-              onPress={() => router.push("/support")}
-            />
-          </View>
-
-          {/* Section: Sign out */}
-          <View style={[styles.section, { backgroundColor: colors.surface }]}>
-            <Pressable
-              onPress={confirmSignOut}
-              accessibilityRole="button"
-              style={({ pressed }) => [
-                styles.signOutRow,
-                { opacity: pressed ? 0.6 : 1 },
-              ]}
+        ListHeaderComponent={
+          <View>
+            {/* ── Top bar ─────────────────────────────────────── */}
+            <View
+              style={{ paddingTop: insets.top + 8, backgroundColor: colors.surface }}
+              className="flex-row items-center justify-between px-4 pb-2"
             >
-              <Ionicons name="log-out-outline" size={20} color={colors.danger} />
-              <T size={15} weight="600" tone="danger">Sign out</T>
-            </Pressable>
+              <View className="flex-row items-center gap-1.5">
+                <T size={20} weight="800" style={{ letterSpacing: -0.4 }}>
+                  {user.username}
+                </T>
+                {user.emailVerifiedAt ? <VerifiedTick size={15} /> : null}
+              </View>
+              <View className="flex-row items-center">
+                <Pressable
+                  onPress={() => router.push("/compose")}
+                  hitSlop={10}
+                  accessibilityLabel="Create"
+                  className="h-10 w-10 items-center justify-center active:opacity-60"
+                >
+                  <Ionicons name="add-circle-outline" size={26} color={colors.ink} />
+                </Pressable>
+                <Pressable
+                  onPress={() => router.push("/settings")}
+                  hitSlop={10}
+                  accessibilityLabel="Settings"
+                  className="h-10 w-10 items-center justify-center active:opacity-60"
+                >
+                  <Ionicons name="menu-outline" size={26} color={colors.ink} />
+                </Pressable>
+              </View>
+            </View>
+
+            {/* ── Identity ────────────────────────────────────── */}
+            <View style={{ backgroundColor: colors.surface }} className="px-4 pb-3">
+              <View className="flex-row items-center gap-5">
+                <Avatar user={user} size={82} />
+                <View className="flex-1 flex-row items-center justify-around">
+                  <Stat value={counts.posts} label="Posts" />
+                  <Stat value={counts.followers} label="Followers" />
+                  <Stat value={counts.following} label="Following" />
+                </View>
+              </View>
+
+              <View className="mt-2.5">
+                <T size={14} weight="700">
+                  {user.displayName}
+                </T>
+                {user.role === "admin" ? (
+                  <T size={12} tone="muted">
+                    RideWing crew
+                  </T>
+                ) : null}
+                {user.bio ? (
+                  <T size={14} style={{ marginTop: 2, lineHeight: 19 }}>
+                    {user.bio}
+                  </T>
+                ) : null}
+              </View>
+
+              {/* IG buttons */}
+              <View className="mt-3 flex-row gap-2">
+                <Pressable
+                  onPress={() => router.push(`/profile/${user.username}`)}
+                  accessibilityRole="button"
+                  className="flex-1 items-center rounded-lg py-2 active:opacity-70"
+                  style={{ backgroundColor: colors.raised }}
+                >
+                  <T size={14} weight="700">
+                    Edit profile
+                  </T>
+                </Pressable>
+                <Pressable
+                  onPress={shareProfile}
+                  accessibilityRole="button"
+                  className="flex-1 items-center rounded-lg py-2 active:opacity-70"
+                  style={{ backgroundColor: colors.raised }}
+                >
+                  <T size={14} weight="700">
+                    Share profile
+                  </T>
+                </Pressable>
+                <Pressable
+                  onPress={() => router.push("/settings")}
+                  accessibilityLabel="More"
+                  className="items-center justify-center rounded-lg px-3 active:opacity-70"
+                  style={{ backgroundColor: colors.raised }}
+                >
+                  <Ionicons name="person-add-outline" size={18} color={colors.ink} />
+                </Pressable>
+              </View>
+            </View>
+
+            <Divider />
+
+            {/* ── Content tabs ────────────────────────────────── */}
+            <View style={{ backgroundColor: colors.surface }} className="flex-row">
+              <TabIcon
+                active={tab === "grid"}
+                icon={tab === "grid" ? "grid" : "grid-outline"}
+                label="Posts"
+                onPress={() => setTab("grid")}
+              />
+              <TabIcon
+                active={tab === "rides"}
+                icon={tab === "rides" ? "navigate" : "navigate-outline"}
+                label="Rides"
+                onPress={() => setTab("rides")}
+              />
+              <TabIcon
+                active={tab === "saved"}
+                icon={tab === "saved" ? "bookmark" : "bookmark-outline"}
+                label="Saved"
+                onPress={() => setTab("saved")}
+              />
+            </View>
+            <Divider />
+
+            {tab !== "grid" ? (
+              <View className="items-center gap-1 px-8 py-12">
+                <View
+                  className="mb-2 h-20 w-20 items-center justify-center rounded-full"
+                  style={{ borderWidth: 1.5, borderColor: colors.ink }}
+                >
+                  <Ionicons
+                    name={tab === "rides" ? "navigate-outline" : "bookmark-outline"}
+                    size={34}
+                    color={colors.ink}
+                  />
+                </View>
+                <T size={22} weight="800">
+                  {tab === "rides" ? "No rides yet" : "No saved posts"}
+                </T>
+                <T size={14} tone="muted" className="text-center">
+                  {tab === "rides"
+                    ? "Rides you join will live here."
+                    : "Tap the bookmark on any post to save it here."}
+                </T>
+                <View style={{ backgroundColor: colors.canvas, marginTop: 12 }} className="w-full gap-1 rounded-2xl p-3">
+                  <ListRow
+                    title="Settings"
+                    icon="settings-outline"
+                    onPress={() => router.push("/settings")}
+                  />
+                  <ListRow
+                    title="Support"
+                    icon="help-circle-outline"
+                    onPress={() => router.push("/support")}
+                  />
+                  <Pressable
+                    onPress={confirmSignOut}
+                    accessibilityRole="button"
+                    className="flex-row items-center gap-3 px-4 py-3.5 active:opacity-60"
+                  >
+                    <Ionicons name="log-out-outline" size={18} color={colors.danger} />
+                    <T size={15} weight="600" tone="danger">
+                      Sign out
+                    </T>
+                  </Pressable>
+                </View>
+              </View>
+            ) : null}
           </View>
-        </View>
-      </ScrollView>
+        }
+        renderItem={({ item }) => {
+          const first = item.media[0];
+          if (!first) return null;
+          return (
+            <Pressable onPress={() => router.push(`/post/${item.id}`)} accessibilityLabel="Open post">
+              {first.type === "video" ? (
+                <View style={{ width: cell, height: cell, backgroundColor: "#000" }} className="items-center justify-center">
+                  {first.posterUrl ? (
+                    <Image
+                      source={{ uri: first.posterUrl }}
+                      style={{ width: cell, height: cell, position: "absolute" }}
+                      contentFit="cover"
+                    />
+                  ) : null}
+                  <Ionicons name="play" size={22} color="#fff" />
+                  {item.media.length > 1 ? (
+                    <View style={styles.multiBadge}>
+                      <Ionicons name="copy-outline" size={14} color="#fff" />
+                    </View>
+                  ) : null}
+                </View>
+              ) : (
+                <View>
+                  <Image
+                    source={{ uri: first.posterUrl ?? first.url }}
+                    style={{ width: cell, height: cell, backgroundColor: colors.raised }}
+                    contentFit="cover"
+                    transition={120}
+                  />
+                  {item.media.length > 1 ? (
+                    <View style={styles.multiBadge}>
+                      <Ionicons name="copy-outline" size={14} color="#fff" />
+                    </View>
+                  ) : null}
+                </View>
+              )}
+            </Pressable>
+          );
+        }}
+        ListEmptyComponent={
+          tab === "grid" ? (
+            <View className="items-center gap-1 px-8 py-12">
+              <View
+                className="mb-2 h-20 w-20 items-center justify-center rounded-full"
+                style={{ borderWidth: 1.5, borderColor: colors.ink }}
+              >
+                <Ionicons name="camera-outline" size={34} color={colors.ink} />
+              </View>
+              <T size={22} weight="800">
+                Share Photos
+              </T>
+              <T size={14} tone="muted" className="text-center">
+                When you post ride photos, they will appear on your profile.
+              </T>
+              <Pressable
+                onPress={() => router.push("/compose")}
+                className="mt-3 rounded-lg px-5 py-2 active:opacity-80"
+                style={{ backgroundColor: colors.accent }}
+              >
+                <T size={14} weight="700" color={colors.onAccent}>
+                  Share your first photo
+                </T>
+              </Pressable>
+            </View>
+          ) : null
+        }
+      />
     </Screen>
   );
 }
 
-function StatPill({ value, label }: { value: number; label: string }) {
+function Stat({ value, label }: { value: number; label: string }) {
   return (
-    <View style={styles.statPill}>
-      <T size={20} weight="800">{value}</T>
-      <T size={12} tone="muted">{label}</T>
-    </View>
+    <Pressable accessibilityRole="button" className="items-center gap-0.5 px-1 active:opacity-60">
+      <T size={18} weight="800">
+        {value}
+      </T>
+      <T size={12} tone="muted">
+        {label}
+      </T>
+    </Pressable>
+  );
+}
+
+function TabIcon({
+  active,
+  icon,
+  label,
+  onPress,
+}: {
+  active: boolean;
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  onPress: () => void;
+}) {
+  const { colors } = usePalette();
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="tab"
+      accessibilityState={{ selected: active }}
+      className="flex-1 items-center py-2.5 active:opacity-60"
+      style={active ? { borderBottomWidth: 1.5, borderBottomColor: colors.ink } : undefined}
+    >
+      <Ionicons name={icon} size={24} color={active ? colors.ink : colors.muted} accessibilityLabel={label} />
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  identityCard: {
-    paddingHorizontal: 16,
-    paddingBottom: 16,
-    gap: 12,
-  },
-  identityTop: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 20,
-    marginTop: 8,
-  },
-  avatarRing: {
-    borderWidth: 2.5,
-    borderRadius: 46,
-    padding: 3,
-  },
-  statsRow: {
-    flex: 1,
-    flexDirection: "row",
-    justifyContent: "space-around",
-  },
-  statPill: {
-    alignItems: "center",
-    gap: 1,
-  },
-  nameBlock: {
-    gap: 2,
-  },
-  nameRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-  },
-  bikeRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    marginTop: 3,
-  },
-  actionRow: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  section: {
-    borderRadius: 0,
-    overflow: "hidden",
-  },
-  signOutRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+  multiBadge: {
+    position: "absolute",
+    top: 6,
+    right: 6,
+    textShadowColor: "rgba(0,0,0,0.5)",
   },
 });

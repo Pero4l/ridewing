@@ -88,6 +88,15 @@ const OWN_SCROLL_PATHS: RegExp[] = [/^\/app\/reels$/];
  */
 const FULL_BLEED_PATHS: RegExp[] = [/^\/app\/messages\/[^/]+$/];
 
+/**
+ * The admin console is a real dashboard, not a phone-width feed. It gets a
+ * wider shell (max-w-6xl) with its own sidebar-style nav, while every other
+ * page keeps the focused max-w-2xl column.
+ */
+function isAdminPath(pathname: string): boolean {
+  return pathname === "/app/admin" || pathname.startsWith("/app/admin/");
+}
+
 export function AppShell({ children }: { children: ReactNode }) {
   const { status, user } = useSession();
   const router = useRouter();
@@ -133,6 +142,20 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div className="grid min-h-dvh place-items-center">
         <InlineSpinner />
       </div>
+    );
+  }
+
+  if (isAdminPath(pathname)) {
+    return (
+      <NotificationsProvider>
+        <div className="mx-auto flex h-dvh w-full max-w-6xl flex-col overflow-hidden">
+          <Header user={user} />
+          <main ref={mainRef} className="flex-1 overflow-y-auto overscroll-contain pb-24">
+            {children}
+          </main>
+          <BottomNav guest={guest} />
+        </div>
+      </NotificationsProvider>
     );
   }
 

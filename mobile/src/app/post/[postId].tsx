@@ -101,6 +101,10 @@ export default function PostScreen() {
             username: user.username,
             displayName: user.displayName,
             profileImage: user.profileImage ?? null,
+            bio: null,
+            bikeInfo: {},
+            emailVerifiedAt: null,
+            createdAt: new Date().toISOString(),
           }
         : null,
       pending: true,

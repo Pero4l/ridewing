@@ -1,6 +1,11 @@
+/* eslint-disable react-hooks/set-state-in-effect --
+ * CommentSheet loads on open. The effect only *starts* the async fetch;
+ * setState lands after an `await`.
+ */
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
+import * as Haptics from "expo-haptics";
 import {
   forwardRef,
   useCallback,
@@ -11,11 +16,14 @@ import {
 } from "react";
 import {
   ActivityIndicator,
+  Alert,
+  Animated,
   FlatList,
   KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
+  Share,
   StyleSheet,
   TextInput,
   View,
@@ -23,10 +31,10 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Avatar, Divider, Row, T } from "./ui";
+import { Avatar, Divider, T, VerifiedTick } from "./ui";
 import { usePalette } from "@/lib/palette";
 import { relativeTime } from "@/lib/format";
-import { ApiError, api } from "@/lib/api";
+import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import type { Post, PostCommentItem } from "@/lib/types";
 
@@ -38,7 +46,7 @@ export type PostActions = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Comment bottom sheet
+// Comment bottom sheet — Instagram style
 // ─────────────────────────────────────────────────────────────────────────────
 
 function CommentSheet({
@@ -77,6 +85,8 @@ function CommentSheet({
   useEffect(() => {
     if (visible) {
       void load();
+      const t = setTimeout(() => inputRef.current?.focus(), 350);
+      return () => clearTimeout(t);
     } else {
       setComments([]);
       setDraft("");
@@ -96,7 +106,16 @@ function CommentSheet({
       likeCount: 0,
       viewerLiked: false,
       user: user
-        ? { id: user.id, username: user.username, displayName: user.displayName, profileImage: user.profileImage ?? null }
+        ? {
+            id: user.id,
+            username: user.username,
+            displayName: user.displayName,
+            profileImage: user.profileImage ?? null,
+            bio: null,
+            bikeInfo: {},
+            emailVerifiedAt: null,
+            createdAt: new Date().toISOString(),
+          }
         : null,
       pending: true,
     };
@@ -126,14 +145,11 @@ function CommentSheet({
       onRequestClose={onClose}
       statusBarTranslucent
     >
-      {/* Dim backdrop */}
       <Pressable
         className="flex-1 bg-black/50"
         onPress={onClose}
         accessibilityLabel="Close comments"
       />
-
-      {/* Sheet */}
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={styles.sheetWrapper}
@@ -141,28 +157,23 @@ function CommentSheet({
         <View
           style={[
             styles.sheet,
-            { backgroundColor: colors.surface, paddingBottom: insets.bottom + 8 },
+            { backgroundColor: colors.surface, paddingBottom: insets.bottom + 10 },
           ]}
         >
-          {/* Handle */}
           <View style={styles.handle} />
-
-          {/* Header */}
           <View style={styles.sheetHeader}>
-            <T size={16} weight="700">
+            <View style={{ width: 32 }} />
+            <T size={15} weight="700">
               Comments
             </T>
             <Pressable onPress={onClose} hitSlop={12} accessibilityLabel="Close">
               <Ionicons name="close" size={22} color={colors.muted} />
             </Pressable>
           </View>
-
           <Divider />
-
-          {/* List */}
           {loading ? (
             <View style={styles.sheetSpinner}>
-              <ActivityIndicator color={colors.accent} />
+              <ActivityIndicator color={colors.muted} />
             </View>
           ) : (
             <FlatList
@@ -171,50 +182,62 @@ function CommentSheet({
               contentContainerStyle={styles.commentList}
               keyboardShouldPersistTaps="handled"
               ListEmptyComponent={
-                <T size={13} tone="muted" style={styles.emptyComments}>
-                  No comments yet. Be the first!
-                </T>
+                <View className="items-center gap-1 py-10">
+                  <T size={15} weight="700">
+                    No comments yet
+                  </T>
+                  <T size={13} tone="muted">
+                    Start the conversation.
+                  </T>
+                </View>
               }
               renderItem={({ item }) => (
                 <View style={styles.commentRow}>
-                  <Avatar user={item.user} size={32} />
+                  <Avatar user={item.user} size={34} />
                   <View style={styles.commentBubble}>
-                    <View
-                      style={[
-                        styles.bubbleInner,
-                        { backgroundColor: colors.raised, opacity: item.pending ? 0.6 : 1 },
-                      ]}
-                    >
+                    <T size={13}>
                       <T size={13} weight="700">
-                        {item.user?.displayName ?? "You"}
+                        {item.user?.username ?? "rider"}{"  "}
                       </T>
-                      <T size={14} style={{ marginTop: 2 }}>
-                        {item.content}
+                      {item.content}
+                    </T>
+                    <View style={styles.commentMeta}>
+                      <T size={11} tone="muted">
+                        {relativeTime(item.createdAt)}
+                      </T>
+                      {item.likeCount > 0 ? (
+                        <T size={11} tone="muted">
+                          {item.likeCount} {item.likeCount === 1 ? "like" : "likes"}
+                        </T>
+                      ) : null}
+                      <T size={11} weight="600" tone="muted">
+                        Reply
                       </T>
                     </View>
-                    <T size={11} tone="muted" style={{ marginTop: 3, marginLeft: 4 }}>
-                      {relativeTime(item.createdAt)}
-                    </T>
                   </View>
+                  <Pressable hitSlop={10} accessibilityLabel="Like comment">
+                    <Ionicons
+                      name={item.viewerLiked ? "heart" : "heart-outline"}
+                      size={13}
+                      color={item.viewerLiked ? "#FF3040" : colors.muted}
+                    />
+                  </Pressable>
                 </View>
               )}
             />
           )}
-
           <Divider />
-
-          {/* Input row */}
           <View style={styles.inputRow}>
-            <Avatar user={user} size={32} />
+            <Avatar user={user} size={36} />
             <TextInput
               ref={inputRef}
               value={draft}
               onChangeText={setDraft}
-              placeholder="Add a comment…"
+              placeholder={`Add a comment as ${user?.username ?? "rider"}…`}
               placeholderTextColor={colors.faint}
               multiline
               maxLength={500}
-              style={[styles.commentInput, { backgroundColor: colors.raised, color: colors.ink }]}
+              style={[styles.commentInput, { color: colors.ink }]}
               returnKeyType="send"
               onSubmitEditing={send}
               blurOnSubmit={false}
@@ -223,21 +246,16 @@ function CommentSheet({
               onPress={send}
               disabled={!draft.trim() || sending}
               accessibilityRole="button"
-              accessibilityLabel="Send comment"
-              style={[
-                styles.sendBtn,
-                {
-                  backgroundColor: draft.trim() && !sending ? colors.accent : colors.raised,
-                },
-              ]}
+              accessibilityLabel="Post comment"
+              hitSlop={8}
             >
               {sending ? (
-                <ActivityIndicator size="small" color={colors.onAccent} />
+                <ActivityIndicator size="small" color={colors.accent} />
               ) : (
                 <Ionicons
-                  name="arrow-up"
-                  size={18}
-                  color={draft.trim() ? colors.onAccent : colors.faint}
+                  name="paper-plane-outline"
+                  size={22}
+                  color={draft.trim() ? colors.accent : colors.faint}
                 />
               )}
             </Pressable>
@@ -249,7 +267,7 @@ function CommentSheet({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PostCard — full-bleed, no outer padding
+// PostCard — Instagram language
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const PostCard = forwardRef<
@@ -262,7 +280,14 @@ export const PostCard = forwardRef<
 
   const [override, setOverride] = useState<{ base: boolean; value: boolean } | null>(null);
   const [commentOpen, setCommentOpen] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [burstKey, setBurstKey] = useState(0);
   const queue = useRef<Promise<void>>(Promise.resolve());
+  const lastTap = useRef(0);
+  const burstScale = useRef(new Animated.Value(0)).current;
+  const burstOpacity = useRef(new Animated.Value(0)).current;
 
   useImperativeHandle(ref, () => ({
     openDetail: () => setCommentOpen(true),
@@ -273,141 +298,301 @@ export const PostCard = forwardRef<
   const delta = liked === post.viewerLiked ? 0 : liked ? 1 : -1;
   const likeCount = Math.max(0, post.likeCount + delta);
 
-  function onToggleLike() {
-    const next = !liked;
+  function fireBurst() {
+    setBurstKey((k) => k + 1);
+    burstScale.setValue(0);
+    burstOpacity.setValue(1);
+    Animated.parallel([
+      Animated.spring(burstScale, {
+        toValue: 1,
+        friction: 5,
+        tension: 120,
+        useNativeDriver: true,
+      }),
+      Animated.timing(burstOpacity, {
+        toValue: 0,
+        duration: 700,
+        delay: 250,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }
+
+  function doLike(next: boolean) {
     setOverride({ base: post.viewerLiked, value: next });
     queue.current = queue.current
       .then(() => actions?.like(post))
       .catch(() => setOverride(null));
   }
 
+  function onToggleLike() {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    doLike(!liked);
+  }
+
+  function onDoubleTapLike() {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    if (!liked) doLike(true);
+    fireBurst();
+  }
+
+  function handleMediaPress() {
+    const now = Date.now();
+    if (now - lastTap.current < 300) {
+      lastTap.current = 0;
+      onDoubleTapLike();
+    } else {
+      lastTap.current = now;
+    }
+  }
+
   function openComments() {
     setCommentOpen(true);
-    // Notify the feed so it can refresh the count later
     actions?.comment(post);
   }
 
-  const mediaWidth = width; // full bleed = full screen width
+  function openMenu() {
+    Alert.alert(
+      `@${post.user?.username ?? "rider"}`,
+      "What would you like to do?",
+      [
+        {
+          text: "Share post",
+          onPress: () => {
+            if (actions?.share) actions.share(post);
+            else {
+              Share.share({ message: `RideWing post by @${post.user?.username ?? "rider"}: ${post.content.slice(0, 140)}` }).catch(() => {});
+            }
+          },
+        },
+        {
+          text: saved ? "Remove from saved" : "Save post",
+          onPress: () => {
+            setSaved((s) => !s);
+            void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+          },
+        },
+        { text: "View profile", onPress: () => openProfile() },
+        { text: "Cancel", style: "cancel" },
+      ],
+    );
+  }
+
+  function openProfile() {
+    if (post.user?.username) {
+      if (onOpenProfile) onOpenProfile(post.user.username);
+      else router.push(`/profile/${post.user.username}`);
+    }
+  }
+
+  const verified = !!post.user?.emailVerifiedAt;
+  const author = post.user;
+  const mediaWidth = width;
+  const captionLong = post.content.length > 110;
 
   return (
     <>
-      <View style={styles.card}>
+      <View style={[styles.card, { backgroundColor: colors.surface }]}>
         {/* ── Header ─────────────────────────────────────────────── */}
-        <Pressable
-          onPress={() => {
-            if (post.user?.username) {
-              if (onOpenProfile) onOpenProfile(post.user.username);
-              else router.push(`/profile/${post.user.username}`);
-            }
-          }}
-          accessibilityRole="button"
-          accessibilityLabel={`Open ${post.user?.displayName ?? "rider"}'s profile`}
-        >
-          <View style={styles.header}>
-            <Avatar user={post.user} size={38} />
+        <View style={styles.header}>
+          <Pressable
+            onPress={openProfile}
+            accessibilityRole="button"
+            accessibilityLabel={`Open ${author?.displayName ?? "rider"}'s profile`}
+            hitSlop={4}
+            style={styles.headerLeft}
+          >
+            <Avatar user={author} size={36} />
             <View style={{ flex: 1, minWidth: 0 }}>
-              <T size={14} weight="700" numberOfLines={1}>
-                {post.user?.displayName ?? "Rider"}
-              </T>
-              <T size={12} tone="muted">
-                @{post.user?.username}
-                {post.repostedBy ? " · reposted" : ""}
-                {" · "}
+              <View style={styles.nameRow}>
+                <T size={14} weight="700" numberOfLines={1}>
+                  {author?.username ?? "rider"}
+                </T>
+                {verified ? <VerifiedTick size={13} /> : null}
+              </View>
+              <T size={12} tone="muted" numberOfLines={1}>
+                {post.repostedBy ? `Reposted by ${post.repostedBy.username} · ` : ""}
                 {relativeTime(post.createdAt)}
               </T>
             </View>
-            <Ionicons name="ellipsis-horizontal" size={20} color={colors.muted} />
-          </View>
-        </Pressable>
-
-        {/* ── Content ────────────────────────────────────────────── */}
-        {post.content ? (
-          <Pressable
-            onPress={openComments}
-            accessibilityRole="button"
-            accessibilityLabel="View post"
-          >
-            <T size={15} style={styles.content}>
-              {post.content}
-            </T>
           </Pressable>
-        ) : null}
+          <Pressable onPress={openMenu} hitSlop={12} accessibilityLabel="More options" style={styles.moreBtn}>
+            <Ionicons name="ellipsis-horizontal" size={20} color={colors.ink} />
+          </Pressable>
+        </View>
 
-        {/* ── Media — full bleed, no horizontal padding ──────────── */}
+        {/* ── Media — full bleed, paging carousel ────────────────── */}
         {post.media.length ? (
-          <Pressable
-            onPress={openComments}
-            accessibilityRole="imagebutton"
-            accessibilityLabel="View post"
-          >
+          <Pressable onPress={handleMediaPress} delayLongPress={350} onLongPress={openComments}>
             <View style={styles.mediaWrap}>
-              {post.media.map((item, index) =>
-                item.type === "video" ? (
-                  <View
-                    key={`${item.url}-${index}`}
-                    style={[
-                      styles.videoPlaceholder,
-                      { height: mediaWidth * 0.5625 },
-                    ]}
-                  >
-                    <Ionicons name="play-circle" size={56} color={colors.surface} />
-                  </View>
-                ) : (
-                  <Image
-                    key={`${item.url}-${index}`}
-                    source={{ uri: item.posterUrl ?? item.url }}
-                    style={{
-                      width: mediaWidth,
-                      aspectRatio:
-                        item.width && item.height ? item.width / item.height : 1,
-                      maxHeight: 480,
-                      backgroundColor: colors.raised,
-                    }}
-                    contentFit="cover"
-                    transition={150}
-                  />
-                ),
-              )}
+              <FlatList
+                data={post.media}
+                keyExtractor={(item, index) => `${item.url}-${index}`}
+                horizontal
+                pagingEnabled
+                showsHorizontalScrollIndicator={false}
+                onMomentumScrollEnd={(e) => {
+                  const i = Math.round(e.nativeEvent.contentOffset.x / mediaWidth);
+                  setActiveIndex(i);
+                }}
+                renderItem={({ item }) =>
+                  item.type === "video" ? (
+                    <View style={[styles.videoPlaceholder, { width: mediaWidth, height: mediaWidth }]}>
+                      {item.posterUrl ? (
+                        <Image
+                          source={{ uri: item.posterUrl }}
+                          style={{ width: mediaWidth, height: mediaWidth, position: "absolute" }}
+                          contentFit="cover"
+                        />
+                      ) : null}
+                      <View style={styles.playBadge}>
+                        <Ionicons name="play" size={26} color="#fff" />
+                      </View>
+                    </View>
+                  ) : (
+                    <Image
+                      source={{ uri: item.posterUrl ?? item.url }}
+                      style={{
+                        width: mediaWidth,
+                        aspectRatio: item.width && item.height ? item.width / item.height : 1,
+                        maxHeight: 520,
+                        backgroundColor: colors.raised,
+                      }}
+                      contentFit="cover"
+                      transition={150}
+                    />
+                  )
+                }
+              />
+              {/* double-tap heart burst */}
+              <Animated.View
+                key={burstKey}
+                pointerEvents="none"
+                style={[
+                  styles.burst,
+                  {
+                    opacity: burstOpacity,
+                    transform: [{ scale: burstScale }],
+                  },
+                ]}
+              >
+                <Ionicons name="heart" size={92} color="#fff" style={styles.burstShadow} />
+              </Animated.View>
+              {/* paging dots */}
+              {post.media.length > 1 ? (
+                <View style={styles.dots}>
+                  {post.media.map((_, i) => (
+                    <View
+                      key={i}
+                      style={[
+                        styles.dot,
+                        { backgroundColor: i === activeIndex ? "#fff" : "rgba(255,255,255,0.45)" },
+                      ]}
+                    />
+                  ))}
+                </View>
+              ) : null}
+              {post.media.length > 1 ? (
+                <View style={styles.countPill}>
+                  <T size={11} weight="700" color="#fff">
+                    {activeIndex + 1}/{post.media.length}
+                  </T>
+                </View>
+              ) : null}
             </View>
           </Pressable>
         ) : null}
 
         {/* ── Action bar ─────────────────────────────────────────── */}
         <View style={styles.actions}>
-          <ActionBtn
-            icon={liked ? "heart" : "heart-outline"}
-            label={likeCount > 0 ? fmt(likeCount) : undefined}
-            color={liked ? colors.danger : colors.muted}
-            accessibilityLabel={liked ? "Unlike" : "Like"}
-            onPress={onToggleLike}
-          />
-          <ActionBtn
-            icon="chatbubble-outline"
-            label={post.commentCount > 0 ? fmt(post.commentCount) : undefined}
-            color={colors.muted}
-            accessibilityLabel="Comment"
-            onPress={openComments}
-          />
-          <ActionBtn
-            icon="repeat"
-            label={post.repostCount > 0 ? fmt(post.repostCount) : undefined}
-            color={colors.muted}
-            accessibilityLabel="Repost"
-            onPress={() => actions?.repost(post)}
-          />
-          <ActionBtn
-            icon="paper-plane-outline"
-            label={post.shareCount > 0 ? fmt(post.shareCount) : undefined}
-            color={colors.muted}
-            accessibilityLabel="Share"
-            onPress={() =>
-              actions?.share ? actions.share(post) : openComments()
-            }
-          />
+          <View style={styles.actionsLeft}>
+            <Pressable onPress={onToggleLike} hitSlop={10} accessibilityRole="button" accessibilityLabel={liked ? "Unlike" : "Like"}>
+              <Animated.View>
+                <Ionicons
+                  name={liked ? "heart" : "heart-outline"}
+                  size={27}
+                  color={liked ? "#FF3040" : colors.ink}
+                />
+              </Animated.View>
+            </Pressable>
+            <Pressable onPress={openComments} hitSlop={10} accessibilityLabel="Comment">
+              <Ionicons name="chatbubble-outline" size={25} color={colors.ink} style={{ transform: [{ scaleX: -1 }] }} />
+            </Pressable>
+            <Pressable
+              onPress={() => actions?.repost(post)}
+              hitSlop={10}
+              accessibilityLabel="Repost"
+            >
+              <Ionicons
+                name="repeat-outline"
+                size={26}
+                color={post.viewerReposted ? colors.accent : colors.ink}
+              />
+            </Pressable>
+            <Pressable
+              onPress={() => (actions?.share ? actions.share(post) : openComments())}
+              hitSlop={10}
+              accessibilityLabel="Share"
+            >
+              <Ionicons name="paper-plane-outline" size={25} color={colors.ink} />
+            </Pressable>
+          </View>
+          <Pressable
+            onPress={() => {
+              setSaved((s) => !s);
+              void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+            }}
+            hitSlop={10}
+            accessibilityLabel={saved ? "Unsave" : "Save"}
+          >
+            <Ionicons name={saved ? "bookmark" : "bookmark-outline"} size={25} color={colors.ink} />
+          </Pressable>
         </View>
 
-        {/* Bottom hairline */}
-        <Divider />
+        {/* ── Likes ──────────────────────────────────────────────── */}
+        {likeCount > 0 ? (
+          <Pressable onPress={openComments} style={styles.likesRow}>
+            <T size={14} weight="700">
+              {likeCount} {likeCount === 1 ? "like" : "likes"}
+            </T>
+          </Pressable>
+        ) : null}
+
+        {/* ── Caption ────────────────────────────────────────────── */}
+        {post.content ? (
+          <Pressable onPress={() => captionLong && setExpanded((e) => !e)} style={styles.caption}>
+            <T size={14} numberOfLines={expanded ? undefined : 2}>
+              <T size={14} weight="700">
+                {author?.username ?? "rider"}{"  "}
+              </T>
+              {expanded || !captionLong ? post.content : `${post.content.slice(0, 110)}… `}
+              {!expanded && captionLong ? (
+                <T size={14} tone="muted">
+                  more
+                </T>
+              ) : null}
+            </T>
+          </Pressable>
+        ) : null}
+
+        {/* ── Comments link + time ───────────────────────────────── */}
+        {post.commentCount > 0 ? (
+          <Pressable onPress={openComments} style={styles.viewComments}>
+            <T size={14} tone="muted">
+              View all {post.commentCount} comment{post.commentCount === 1 ? "" : "s"}
+            </T>
+          </Pressable>
+        ) : null}
+        <View style={styles.timeRow}>
+          <T size={11} tone="muted" style={{ letterSpacing: 0.4 }}>
+            {relativeTime(post.createdAt).toUpperCase()}
+          </T>
+          {post.repostCount > 0 ? (
+            <T size={11} tone="muted">
+              · {post.repostCount} repost{post.repostCount === 1 ? "" : "s"}
+            </T>
+          ) : null}
+        </View>
       </View>
 
       <CommentSheet
@@ -424,86 +609,128 @@ function fmt(n: number): string {
   return String(n);
 }
 
-function ActionBtn({
-  icon,
-  label,
-  color,
-  accessibilityLabel,
-  onPress,
-}: {
-  icon: keyof typeof Ionicons.glyphMap;
-  label?: string;
-  color: string;
-  accessibilityLabel: string;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={accessibilityLabel}
-      hitSlop={8}
-      style={styles.actionBtn}
-    >
-      <Ionicons name={icon} size={22} color={color} />
-      {label ? (
-        <T size={13} weight="600" color={color}>
-          {label}
-        </T>
-      ) : null}
-    </Pressable>
-  );
-}
+export { fmt as formatCount };
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: "transparent",
-    // No horizontal padding — media bleeds to screen edges
+    paddingBottom: 12,
   },
   header: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    paddingHorizontal: 14,
-    paddingTop: 12,
-    paddingBottom: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    gap: 8,
   },
-  content: {
-    paddingHorizontal: 14,
-    paddingBottom: 10,
-    lineHeight: 22,
+  headerLeft: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    minWidth: 0,
+  },
+  nameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  moreBtn: {
+    padding: 4,
   },
   mediaWrap: {
-    // No padding — images reach both edges
+    position: "relative",
+    backgroundColor: "#000",
   },
   videoPlaceholder: {
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#000",
   },
+  playBadge: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.85)",
+  },
+  burst: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  burstShadow: {
+    textShadowColor: "rgba(0,0,0,0.35)",
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 12,
+  },
+  dots: {
+    position: "absolute",
+    bottom: 10,
+    left: 0,
+    right: 0,
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 5,
+  },
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  countPill: {
+    position: "absolute",
+    top: 10,
+    right: 10,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
   actions: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 6,
-    paddingVertical: 4,
+    justifyContent: "space-between",
+    paddingHorizontal: 12,
+    paddingTop: 9,
+    paddingBottom: 2,
   },
-  actionBtn: {
-    flex: 1,
+  actionsLeft: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    gap: 5,
-    paddingVertical: 8,
+    gap: 16,
   },
-  // Comment sheet
-  sheetWrapper: {
-    // sits at the bottom after the backdrop fills remaining space
+  likesRow: {
+    paddingHorizontal: 12,
+    paddingTop: 4,
   },
+  caption: {
+    paddingHorizontal: 12,
+    paddingTop: 3,
+  },
+  viewComments: {
+    paddingHorizontal: 12,
+    paddingTop: 3,
+  },
+  timeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingTop: 5,
+  },
+  sheetWrapper: {},
   sheet: {
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    maxHeight: "80%",
-    minHeight: 300,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    maxHeight: "82%",
+    minHeight: 320,
     shadowColor: "#000",
     shadowOpacity: 0.18,
     shadowRadius: 20,
@@ -524,7 +751,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 10,
   },
   sheetSpinner: {
     paddingVertical: 32,
@@ -532,7 +759,7 @@ const styles = StyleSheet.create({
   },
   commentList: {
     padding: 16,
-    gap: 14,
+    gap: 16,
   },
   commentRow: {
     flexDirection: "row",
@@ -541,38 +768,23 @@ const styles = StyleSheet.create({
   },
   commentBubble: {
     flex: 1,
+    gap: 3,
   },
-  bubbleInner: {
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  emptyComments: {
-    textAlign: "center",
-    paddingVertical: 24,
+  commentMeta: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 2,
   },
   inputRow: {
     flexDirection: "row",
-    alignItems: "flex-end",
+    alignItems: "center",
     gap: 10,
     paddingHorizontal: 14,
     paddingTop: 10,
   },
   commentInput: {
     flex: 1,
-    borderRadius: 20,
-    paddingHorizontal: 14,
-    paddingTop: 10,
-    paddingBottom: 10,
-    fontSize: 15,
-    maxHeight: 100,
-    lineHeight: 20,
-  },
-  sendBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    alignItems: "center",
-    justifyContent: "center",
+    fontSize: 14,
+    paddingVertical: 8,
   },
 });

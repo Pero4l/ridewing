@@ -683,6 +683,101 @@ export function Badge({ label, tone = "accent" }: { label: string; tone?: Tone }
   );
 }
 
+// ── Instagram-grade primitives ─────────────────────────────────────────
+
+export function VerifiedTick({ size = 14 }: { size?: number }) {
+  const { colors } = usePalette();
+  return <Ionicons name="checkmark-circle" size={size} color={colors.accent} />;
+}
+
+/**
+ * Instagram-style story ring: a 2.5px accent ring with a 2px surface gap so
+ * the avatar reads as "live". Seen state dims the ring to hairline.
+ */
+export function StoryRing({
+  user,
+  size = 64,
+  seen = false,
+  onPress,
+}: {
+  user: Pick<PublicUser, "profileImage" | "username"> | null;
+  size?: number;
+  seen?: boolean;
+  onPress?: () => void;
+}) {
+  const { colors } = usePalette();
+  const body = (
+    <View
+      style={{
+        borderWidth: 2.5,
+        borderColor: seen ? colors.hairline : colors.accent,
+        borderRadius: (size + 10) / 2,
+        padding: 2.5,
+      }}
+    >
+      <Avatar user={user} size={size} />
+    </View>
+  );
+  if (!onPress) return body;
+  return (
+    <Pressable onPress={onPress} accessibilityRole="button" hitSlop={4} className="active:opacity-80">
+      {body}
+    </Pressable>
+  );
+}
+
+/**
+ * Shimmer-free skeleton: `animate-pulse` + raised blocks. Used for the feed,
+ * profile header and grids so first paint never flashes a spinner.
+ */
+export function Skeleton({
+  width,
+  height,
+  rounded = 12,
+  className = "",
+}: {
+  width?: number | string;
+  height?: number | string;
+  rounded?: number;
+  className?: string;
+}) {
+  return (
+    <View
+      className={`animate-pulse bg-raised ${className}`}
+      style={[
+        { borderRadius: rounded },
+        width !== undefined ? { width: width as never } : null,
+        height !== undefined ? { height: height as never } : null,
+      ]}
+    />
+  );
+}
+
+export function FeedSkeleton() {
+  return (
+    <View className="gap-0">
+      {[0, 1].map((key) => (
+        <View key={key} className="gap-3 px-4 py-4">
+          <View className="flex-row items-center gap-3">
+            <Skeleton width={38} height={38} rounded={19} />
+            <View className="flex-1 gap-1.5">
+              <Skeleton width="45%" height={12} rounded={6} />
+              <Skeleton width="30%" height={10} rounded={5} />
+            </View>
+          </View>
+          <Skeleton width="90%" height={12} rounded={6} />
+          <Skeleton width="100%" height={320} rounded={14} />
+          <View className="flex-row gap-4">
+            <Skeleton width={28} height={28} rounded={14} />
+            <Skeleton width={28} height={28} rounded={14} />
+            <Skeleton width={28} height={28} rounded={14} />
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 // ── states ──────────────────────────────────────────────────────────────────
 
 export function Spinner({ label }: { label?: string }) {
