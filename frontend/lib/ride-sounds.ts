@@ -45,3 +45,12 @@ export function playSignalSent() {
   if (!context) return;
   tone(context, "square", 0, 0.12, 1046, 0.12);
 }
+
+/** A pleasant two-tone chime for new notifications. */
+export function playNotificationSound() {
+  const context = audio();
+  if (!context) return;
+  tone(context, "sine", 0, 0.15, 523, 0.2);
+  tone(context, "sine", 0.12, 0.15, 659, 0.2);
+  tone(context, "sine", 0.24, 0.15, 784, 0.2);
+}

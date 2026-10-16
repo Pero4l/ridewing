@@ -131,7 +131,7 @@ export default function ThreadScreen() {
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
-      style={{ flex: 1, backgroundColor: colors.canvas }}
+      style={styles.keyboardView}
     >
       {/* Custom header — replaces the native header so we can put a back
           button and the conversation title in one row */}
@@ -318,6 +318,8 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingHorizontal: 12,
     paddingTop: 10,
+    paddingBottom: insets.bottom + 10,
+    justifyContent: "space-between",
   },
   input: {
     flex: 1,
@@ -336,5 +338,9 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
+  },
+  keyboardView: {
+    flex: 1,
+    backgroundColor: colors.canvas,
   },
 });

@@ -7,14 +7,17 @@ import { Button } from "@/components/ui";
 
 /**
  * Follow/unfollow toggle. Reads the initial state off the profile and keeps the
- * button in sync optimistically.
+ * button in sync optimistically. Shows "Follow Back" when the profile user
+ * follows the current user.
  */
 export function FollowButton({
   user,
   onChanged,
+  followedByViewer,
 }: {
   user: { username: string; viewerIsFollowing?: boolean };
   onChanged?: (following: boolean) => void;
+  followedByViewer?: boolean;
 }) {
   const [following, setFollowing] = useState(user.viewerIsFollowing ?? false);
   const [busy, setBusy] = useState(false);
@@ -40,9 +43,16 @@ export function FollowButton({
     }
   }, [following, busy, user.username, onChanged, toast]);
 
+  const label =
+    followedByViewer && !following
+      ? "Follow Back"
+      : following
+      ? "Following"
+      : "Follow";
+
   return (
     <Button size="sm" variant={following ? "secondary" : "primary"} onClick={toggle} disabled={busy}>
-      {following ? "Following" : "Follow"}
+      {label}
     </Button>
   );
 }

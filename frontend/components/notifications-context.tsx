@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import { api } from "@/lib/api";
 import { useSession } from "@/lib/auth";
 import { onSocketEvent } from "@/lib/socket";
+import { playNotificationSound } from "@/lib/ride-sounds";
 
 type NotificationsContextValue = {
   unreadCount: number;
@@ -67,8 +68,12 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
 
     const offNotification = onSocketEvent<{ id: string }>("notification:new", () => {
       setUnreadCount((count) => count + 1);
+      playNotificationSound();
     });
-    const offMessage = onSocketEvent("message:new", () => queueMessageRefresh());
+    const offMessage = onSocketEvent("message:new", () => {
+      queueMessageRefresh();
+      playNotificationSound();
+    });
     const onVisible = () => {
       if (authed && document.visibilityState === "visible") {
         refresh();

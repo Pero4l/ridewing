@@ -21,3 +21,6 @@ coverage/
 # OS / editor
 .DS_Store
 *.swp
+
+#script
+fix-follows.js

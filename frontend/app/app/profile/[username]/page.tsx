@@ -233,7 +233,7 @@ export default function ProfilePage({ params }: { params: Promise<{ username: st
         <div className="mt-4 flex items-center gap-2">
           {!isSelf && viewer ? (
             <>
-              <FollowButton user={profile} onChanged={() => void loadProfile()} />
+              <FollowButton user={profile} onChanged={() => void loadProfile()} followedByViewer={profile.followsViewer} />
               <button
                 type="button"
                 onClick={message}

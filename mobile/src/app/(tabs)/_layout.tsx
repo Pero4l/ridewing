@@ -44,10 +44,10 @@ export default function TabsLayout() {
           // The bar sits on a tinted canvas, so an opaque surface plus the hairline
           // is what separates it; no blur library is needed for that to read right.
           borderTopWidth: 0.5,
-          paddingTop: 8,
-          paddingBottom: 8,
+          paddingTop: 12,
+          paddingBottom: 12,
         },
-        tabBarLabelStyle: { fontSize: 10, fontWeight: "600" },
+        tabBarLabelStyle: { fontSize: 13, fontWeight: "600" },
         sceneStyle: { backgroundColor: colors.canvas },
         // Instagram-like: show label always, small font
         tabBarShowLabel: true,

@@ -220,7 +220,7 @@ function ReelCard({
   const videoRef = useRef<HTMLVideoElement>(null);
   const [active, setActive] = useState(false);
   const [paused, setPaused] = useState(false);
-  const [muted, setMuted] = useState(true);
+  const [muted, setMuted] = useState(false);
 
   const media = post.media.find((item) => item.type === "video") ?? post.media[0];
   const videoUrl = media?.type === "video" ? media.url : null;
@@ -274,7 +274,8 @@ function ReelCard({
             ref={videoRef}
             src={videoUrl}
             poster={posterUrl}
-            // Muted is what makes autoplay legal; the rider unmutes deliberately.
+            // Starts unmuted; if autoplay is blocked by the browser, catch and stay paused,
+            // then the rider can tap to play or use the mute button.
             muted={muted}
             loop
             playsInline
