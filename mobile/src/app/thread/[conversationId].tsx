@@ -13,9 +13,10 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Divider, Spinner, T } from "@/components/ui";
+import { Divider, Spinner, T, Avatar } from "@/components/ui";
 import { ApiError, api } from "@/lib/api";
 import { usePalette } from "@/lib/palette";
+import { useSession } from "@/lib/session";
 import { messageTime } from "@/lib/format";
 import { emitWithAck, onSocketEvent } from "@/lib/socket";
 import type { Message, Page } from "@/lib/types";
@@ -28,7 +29,8 @@ export default function ThreadScreen() {
   const { conversationId } = useLocalSearchParams<{ conversationId: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { colors } = usePalette();
+  const { colors, dark } = usePalette();
+  const { user } = useSession();
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [title, setTitle] = useState("Conversation");
@@ -175,10 +177,14 @@ export default function ThreadScreen() {
           contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 12, gap: 6 }}
           onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
           renderItem={({ item, index }) => {
-            const mine = item.senderId === "me" || item.sender?.username === undefined;
+            // Own messages carry our user id (the "me" senderId only exists on
+            // the local optimistic stand-in before the server echo replaces
+            // it). Comparing against the session is what keeps mine on the
+            // right and theirs on the left.
+            const mine = item.pending || item.senderId === "me" || (user ? item.senderId === user.id : false);
             const prevItem = index > 0 ? messages[index - 1] : null;
             const prevMine = prevItem
-              ? prevItem.senderId === "me" || prevItem.sender?.username === undefined
+              ? prevItem.pending || prevItem.senderId === "me" || (user ? prevItem.senderId === user.id : false)
               : null;
             // Show timestamp when sender changes or after a gap of >5 min
             const showTime =
@@ -200,7 +206,20 @@ export default function ThreadScreen() {
                   </T>
                 ) : null}
 
-                <View style={[styles.bubbleRow, mine ? styles.bubbleRowMine : styles.bubbleRowTheirs]}>
+                <View
+                  style={[
+                    styles.bubbleRow,
+                    mine ? styles.bubbleRowMine : styles.bubbleRowTheirs,
+                    { alignItems: "flex-end" },
+                  ]}
+                >
+                  {!mine ? (
+                    <View style={{ width: 30, marginRight: 6, paddingBottom: 2 }}>
+                      {showTime || prevMine ? (
+                        <Avatar user={item.sender ?? null} size={30} />
+                      ) : null}
+                    </View>
+                  ) : null}
                   <View
                     style={[
                       styles.bubble,
@@ -210,6 +229,11 @@ export default function ThreadScreen() {
                       item.pending ? { opacity: 0.55 } : null,
                     ]}
                   >
+                    {!mine && (showTime || prevMine) && item.sender?.displayName ? (
+                      <T size={12} weight="700" tone="accent" style={{ marginBottom: 2 }}>
+                        {item.sender.displayName}
+                      </T>
+                    ) : null}
                     <T
                       size={15}
                       style={{ color: mine ? colors.onAccent : colors.ink, lineHeight: 21 } as never}
@@ -245,6 +269,7 @@ export default function ThreadScreen() {
           onChangeText={setDraft}
           placeholder="iMessage"
           placeholderTextColor={colors.faint}
+          keyboardAppearance={dark ? "dark" : "light"}
           multiline
           maxLength={2000}
           style={[

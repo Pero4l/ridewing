@@ -29,7 +29,10 @@ export default function Index() {
   // wait rather than a flash. Showing a branded loading state — and, if it drags,
   // the reason — stops it reading as a frozen app.
   return (
-    <View className="flex-1 items-center justify-center gap-4 bg-canvas px-6">
+    <View
+      className="flex-1 items-center justify-center gap-4 px-6"
+      style={{ backgroundColor: colors.canvas }}
+    >
       <Brand />
       <ActivityIndicator color={colors.accent} />
 

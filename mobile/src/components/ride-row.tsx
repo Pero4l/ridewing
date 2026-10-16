@@ -24,16 +24,20 @@ export function RideRow({ ride }: { ride: Ride }) {
       onPress={() => router.push(`/ride/${ride.id}`)}
       accessibilityRole="button"
       accessibilityLabel={`Open ride ${ride.name}`}
-      className="flex-row items-center px-4 py-3.5 active:bg-raised/60"
-      style={{ gap: 12 }}
+      className="flex-row items-center px-4 py-3.5"
+      style={({ pressed }) => [{ gap: 12, backgroundColor: pressed ? colors.raised : "transparent" }]}
       android_ripple={{ color: "rgba(0,0,0,0.04)" }}
     >
-      <View className="relative h-11 w-11 items-center justify-center rounded-xl bg-accentSoft">
+      <View
+        className="relative h-11 w-11 items-center justify-center rounded-xl"
+        style={{ backgroundColor: colors.accentSoft }}
+      >
         <Ionicons name="mic" size={20} color={colors.accent} />
         {live ? (
           <View
-            className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-accent"
+            className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full"
             style={{
+              backgroundColor: colors.accent,
               shadowColor: colors.accent,
               shadowOpacity: 0.6,
               shadowRadius: 4,
@@ -47,8 +51,7 @@ export function RideRow({ ride }: { ride: Ride }) {
           {ride.name}
         </T>
         <T size={12} muted numberOfLines={1}>
-          {ride.creator?.displayName ?? "A rider"} · {roster.length}/{ride.maxParticipants} riders
-          {ride.voiceMode === "open" ? " · open mic" : ""}
+          {`${ride.creator?.displayName ?? "A rider"} · ${roster.length}/${ride.maxParticipants} riders${ride.voiceMode === "open" ? " · open mic" : ""}`}
         </T>
       </View>
       <T size={11} muted className="shrink-0">

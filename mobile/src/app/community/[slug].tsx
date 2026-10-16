@@ -40,7 +40,7 @@ export default function CommunityScreen() {
       setCommunity(res.community);
       setError(null);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not load this group.");
+      setError(err instanceof ApiError ? err.message : "Could not load this community.");
     } finally {
       setLoading(false);
     }
@@ -61,9 +61,9 @@ export default function CommunityScreen() {
     }
   }
 
-  if (loading) return <Screen><Spinner label="Loading group" /></Screen>;
+  if (loading) return <Screen><Spinner label="Loading community" /></Screen>;
   if (error && !community) return <Screen><ErrorState message={error} onRetry={() => void load()} /></Screen>;
-  if (!community) return <Screen><T className="p-4">Group not found</T></Screen>;
+  if (!community) return <Screen><T className="p-4">Community not found</T></Screen>;
 
   const role = community.viewerRole;
   const isMember = role !== null && community.viewerStatus === "active";
@@ -100,8 +100,7 @@ export default function CommunityScreen() {
               <View style={styles.metaRow}>
                 <Ionicons name="people-outline" size={13} color={colors.muted} />
                 <T size={13} tone="muted">
-                  {community.memberCount} member{community.memberCount !== 1 ? "s" : ""}
-                  {community.joinPolicy === "request" ? " · approval required" : ""}
+                  {`${community.memberCount} member${community.memberCount !== 1 ? "s" : ""}${community.joinPolicy === "request" ? " · approval required" : ""}`}
                 </T>
               </View>
             </View>
@@ -121,7 +120,7 @@ export default function CommunityScreen() {
             {isMember ? (
               <>
                 <Button
-                  label="Group chat"
+                  label="Community chat"
                   icon="chatbubbles-outline"
                   style={{ flex: 1 }}
                   onPress={() => router.push("/(tabs)/messages")}
@@ -138,7 +137,7 @@ export default function CommunityScreen() {
               <Button label="Request pending" variant="secondary" disabled onPress={() => {}} style={{ flex: 1 }} />
             ) : (
               <Button
-                label={community.joinPolicy === "request" ? "Request to join" : "Join group"}
+                label={community.joinPolicy === "request" ? "Request to join" : "Join community"}
                 icon={community.joinPolicy === "request" ? "hand-right-outline" : "add"}
                 style={{ flex: 1 }}
                 loading={busy}

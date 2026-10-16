@@ -25,6 +25,7 @@ import {
   Pressable,
   Share,
   StyleSheet,
+  Text,
   TextInput,
   View,
   useWindowDimensions,
@@ -32,11 +33,12 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Avatar, Divider, T, VerifiedTick } from "./ui";
+import { FeedVideo } from "./feed-video";
 import { usePalette } from "@/lib/palette";
 import { relativeTime } from "@/lib/format";
 import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
-import type { Post, PostCommentItem } from "@/lib/types";
+import type { Post, PostCommentItem, PostMedia } from "@/lib/types";
 
 export type PostActions = {
   like: (post: Post) => void;
@@ -58,7 +60,7 @@ function CommentSheet({
   visible: boolean;
   onClose: () => void;
 }) {
-  const { colors } = usePalette();
+  const { colors, dark } = usePalette();
   const insets = useSafeAreaInsets();
   const { user } = useSession();
 
@@ -160,7 +162,8 @@ function CommentSheet({
             { backgroundColor: colors.surface, paddingBottom: insets.bottom + 10 },
           ]}
         >
-          <View style={styles.handle} />
+          {/* Handle — hairline so it reads on light and dark sheets */}
+          <View style={[styles.handle, { backgroundColor: colors.hairline }]} />
           <View style={styles.sheetHeader}>
             <View style={{ width: 32 }} />
             <T size={15} weight="700">
@@ -195,19 +198,19 @@ function CommentSheet({
                 <View style={styles.commentRow}>
                   <Avatar user={item.user} size={34} />
                   <View style={styles.commentBubble}>
-                    <T size={13}>
-                      <T size={13} weight="700">
-                        {item.user?.username ?? "rider"}{"  "}
-                      </T>
+                    <Text style={{ fontSize: 13, lineHeight: 18, color: colors.ink, fontWeight: "400" }}>
+                      <Text style={{ fontWeight: "700" }}>
+                        {item.user?.username ?? "rider"}  {" "}
+                      </Text>
                       {item.content}
-                    </T>
+                    </Text>
                     <View style={styles.commentMeta}>
                       <T size={11} tone="muted">
                         {relativeTime(item.createdAt)}
                       </T>
                       {item.likeCount > 0 ? (
                         <T size={11} tone="muted">
-                          {item.likeCount} {item.likeCount === 1 ? "like" : "likes"}
+                          {`${item.likeCount} ${item.likeCount === 1 ? "like" : "likes"}`}
                         </T>
                       ) : null}
                       <T size={11} weight="600" tone="muted">
@@ -235,6 +238,7 @@ function CommentSheet({
               onChangeText={setDraft}
               placeholder={`Add a comment as ${user?.username ?? "rider"}…`}
               placeholderTextColor={colors.faint}
+              keyboardAppearance={dark ? "dark" : "light"}
               multiline
               maxLength={500}
               style={[styles.commentInput, { color: colors.ink }]}
@@ -267,6 +271,147 @@ function CommentSheet({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// MediaSlide — one swipeable slide: photo or playable video
+//
+// Single tap on a photo opens the post; double-tap likes. Videos play inline:
+// tap the play badge to start (with sound), tap again to mute/unmute,
+// double-tap to like. Each slide handles its own taps so swipes through the
+// carousel never fight a parent gesture recogniser.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function MediaSlide({
+  item,
+  width,
+  onSingleTap,
+  onDoubleTap,
+}: {
+  item: PostMedia;
+  width: number;
+  onSingleTap: () => void;
+  onDoubleTap: () => void;
+}) {
+  const { colors } = usePalette();
+  const lastTap = useRef(0);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [started, setStarted] = useState(false);
+  const [muted, setMuted] = useState(false);
+
+  useEffect(() => {
+    return () => {
+      if (timer.current) clearTimeout(timer.current);
+    };
+  }, []);
+
+  function handlePress(singleAction: () => void) {
+    const now = Date.now();
+    if (now - lastTap.current < 300) {
+      lastTap.current = 0;
+      if (timer.current) {
+        clearTimeout(timer.current);
+        timer.current = null;
+      }
+      onDoubleTap();
+    } else {
+      lastTap.current = now;
+      timer.current = setTimeout(() => {
+        timer.current = null;
+        singleAction();
+      }, 300);
+    }
+  }
+
+  if (item.type === "video") {
+    const h = Math.min(
+      520,
+      Math.max(240, item.width && item.height ? (width * item.height) / item.width : width),
+    );
+    return (
+      <View style={{ width, height: h, backgroundColor: "#000" }}>
+        {/* Poster underneath — the video covers it once frames flow */}
+        {item.posterUrl ? (
+          <Image
+            source={{ uri: item.posterUrl }}
+            style={{ width, height: h, position: "absolute" }}
+            contentFit="cover"
+            transition={150}
+          />
+        ) : null}
+        {started ? (
+          <>
+            <FeedVideo
+              uri={item.url}
+              style={{ width, height: h }}
+              playing
+              muted={muted}
+            />
+            {/* Tap surface: single = mute toggle, double = like */}
+            <Pressable
+              onPress={() => handlePress(() => setMuted((m) => !m))}
+              accessibilityRole="button"
+              accessibilityLabel={muted ? "Unmute video" : "Mute video"}
+              style={StyleSheet.absoluteFill}
+            />
+            {/* Mute state pill + duration affordance */}
+            <View style={styles.videoPillRow} pointerEvents="box-none">
+              <Pressable
+                onPress={() => setMuted((m) => !m)}
+                accessibilityRole="button"
+                accessibilityLabel={muted ? "Unmute video" : "Mute video"}
+                hitSlop={10}
+                style={styles.mutePill}
+              >
+                <Ionicons
+                  name={muted ? "volume-mute" : "volume-high"}
+                  size={15}
+                  color="#fff"
+                />
+              </Pressable>
+            </View>
+          </>
+        ) : (
+          <Pressable
+            onPress={() => {
+              setStarted(true);
+              setMuted(false);
+              void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Play video"
+            style={[StyleSheet.absoluteFill, styles.playWrap]}
+          >
+            <View style={styles.playBadge}>
+              <Ionicons name="play" size={26} color="#fff" />
+            </View>
+            <View style={styles.videoTag}>
+              <Ionicons name="videocam" size={11} color="#fff" />
+              <T size={10} weight="700" color="#fff" style={{ letterSpacing: 0.6 }}>
+                VIDEO
+              </T>
+            </View>
+          </Pressable>
+        )}
+      </View>
+    );
+  }
+
+  return (
+    <Pressable onPress={() => handlePress(onSingleTap)} accessibilityRole="imagebutton">
+      <Image
+        source={{ uri: item.posterUrl ?? item.url }}
+        style={{
+          width,
+          aspectRatio: item.width && item.height ? item.width / item.height : 1,
+          maxHeight: 520,
+          backgroundColor: colors.raised,
+        }}
+        contentFit="cover"
+        transition={150}
+      />
+    </Pressable>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // PostCard — Instagram language
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -285,7 +430,6 @@ export const PostCard = forwardRef<
   const [activeIndex, setActiveIndex] = useState(0);
   const [burstKey, setBurstKey] = useState(0);
   const queue = useRef<Promise<void>>(Promise.resolve());
-  const lastTap = useRef(0);
   const burstScale = useRef(new Animated.Value(0)).current;
   const burstOpacity = useRef(new Animated.Value(0)).current;
 
@@ -334,16 +478,6 @@ export const PostCard = forwardRef<
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     if (!liked) doLike(true);
     fireBurst();
-  }
-
-  function handleMediaPress() {
-    const now = Date.now();
-    if (now - lastTap.current < 300) {
-      lastTap.current = 0;
-      onDoubleTapLike();
-    } else {
-      lastTap.current = now;
-    }
   }
 
   function openComments() {
@@ -421,49 +555,31 @@ export const PostCard = forwardRef<
           </Pressable>
         </View>
 
-        {/* ── Media — full bleed, paging carousel ────────────────── */}
+        {/* ── Media — full bleed, swipeable paging carousel ─────────
+            Each slide owns its own tap handling so horizontal swipes never
+            fight the tap recogniser: single tap opens comments (photos),
+            double-tap likes, video has its own play + mute controls. */}
         {post.media.length ? (
-          <Pressable onPress={handleMediaPress} delayLongPress={350} onLongPress={openComments}>
-            <View style={styles.mediaWrap}>
-              <FlatList
-                data={post.media}
-                keyExtractor={(item, index) => `${item.url}-${index}`}
-                horizontal
-                pagingEnabled
-                showsHorizontalScrollIndicator={false}
-                onMomentumScrollEnd={(e) => {
-                  const i = Math.round(e.nativeEvent.contentOffset.x / mediaWidth);
-                  setActiveIndex(i);
-                }}
-                renderItem={({ item }) =>
-                  item.type === "video" ? (
-                    <View style={[styles.videoPlaceholder, { width: mediaWidth, height: mediaWidth }]}>
-                      {item.posterUrl ? (
-                        <Image
-                          source={{ uri: item.posterUrl }}
-                          style={{ width: mediaWidth, height: mediaWidth, position: "absolute" }}
-                          contentFit="cover"
-                        />
-                      ) : null}
-                      <View style={styles.playBadge}>
-                        <Ionicons name="play" size={26} color="#fff" />
-                      </View>
-                    </View>
-                  ) : (
-                    <Image
-                      source={{ uri: item.posterUrl ?? item.url }}
-                      style={{
-                        width: mediaWidth,
-                        aspectRatio: item.width && item.height ? item.width / item.height : 1,
-                        maxHeight: 520,
-                        backgroundColor: colors.raised,
-                      }}
-                      contentFit="cover"
-                      transition={150}
-                    />
-                  )
-                }
-              />
+          <View style={styles.mediaWrap}>
+            <FlatList
+              data={post.media}
+              keyExtractor={(item, index) => `${item.url}-${index}`}
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              onMomentumScrollEnd={(e) => {
+                const i = Math.round(e.nativeEvent.contentOffset.x / mediaWidth);
+                setActiveIndex(i);
+              }}
+              renderItem={({ item }) => (
+                <MediaSlide
+                  item={item}
+                  width={mediaWidth}
+                  onSingleTap={openComments}
+                  onDoubleTap={onDoubleTapLike}
+                />
+              )}
+            />
               {/* double-tap heart burst */}
               <Animated.View
                 key={burstKey}
@@ -495,12 +611,11 @@ export const PostCard = forwardRef<
               {post.media.length > 1 ? (
                 <View style={styles.countPill}>
                   <T size={11} weight="700" color="#fff">
-                    {activeIndex + 1}/{post.media.length}
+                    {`${activeIndex + 1}/${post.media.length}`}
                   </T>
                 </View>
               ) : null}
             </View>
-          </Pressable>
         ) : null}
 
         {/* ── Action bar ─────────────────────────────────────────── */}
@@ -553,25 +668,25 @@ export const PostCard = forwardRef<
         {likeCount > 0 ? (
           <Pressable onPress={openComments} style={styles.likesRow}>
             <T size={14} weight="700">
-              {likeCount} {likeCount === 1 ? "like" : "likes"}
+              {`${likeCount} ${likeCount === 1 ? "like" : "likes"}`}
             </T>
           </Pressable>
         ) : null}
 
-        {/* ── Caption ────────────────────────────────────────────── */}
+        {/* ── Caption — single Text with styled spans (nested custom
+            components here blank out on some Android builds) ────── */}
         {post.content ? (
           <Pressable onPress={() => captionLong && setExpanded((e) => !e)} style={styles.caption}>
-            <T size={14} numberOfLines={expanded ? undefined : 2}>
-              <T size={14} weight="700">
-                {author?.username ?? "rider"}{"  "}
-              </T>
+            <Text
+              numberOfLines={expanded ? undefined : 2}
+              style={{ fontSize: 14, lineHeight: 20, color: colors.ink, fontWeight: "400" }}
+            >
+              <Text style={{ fontWeight: "700" }}>{author?.username ?? "rider"}  </Text>
               {expanded || !captionLong ? post.content : `${post.content.slice(0, 110)}… `}
               {!expanded && captionLong ? (
-                <T size={14} tone="muted">
-                  more
-                </T>
+                <Text style={{ color: colors.muted }}>more</Text>
               ) : null}
-            </T>
+            </Text>
           </Pressable>
         ) : null}
 
@@ -579,7 +694,7 @@ export const PostCard = forwardRef<
         {post.commentCount > 0 ? (
           <Pressable onPress={openComments} style={styles.viewComments}>
             <T size={14} tone="muted">
-              View all {post.commentCount} comment{post.commentCount === 1 ? "" : "s"}
+              {`View all ${post.commentCount} comment${post.commentCount === 1 ? "" : "s"}`}
             </T>
           </Pressable>
         ) : null}
@@ -589,7 +704,7 @@ export const PostCard = forwardRef<
           </T>
           {post.repostCount > 0 ? (
             <T size={11} tone="muted">
-              · {post.repostCount} repost{post.repostCount === 1 ? "" : "s"}
+              {`· ${post.repostCount} repost${post.repostCount === 1 ? "" : "s"}`}
             </T>
           ) : null}
         </View>
@@ -646,6 +761,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: "#000",
   },
+  playWrap: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
   playBadge: {
     width: 56,
     height: 56,
@@ -692,6 +811,31 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: 8,
     paddingVertical: 3,
+  },
+  videoPillRow: {
+    position: "absolute",
+    bottom: 10,
+    right: 10,
+    flexDirection: "row",
+    gap: 8,
+  },
+  mutePill: {
+    backgroundColor: "rgba(0,0,0,0.6)",
+    borderRadius: 16,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  videoTag: {
+    position: "absolute",
+    top: 10,
+    left: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    borderRadius: 8,
+    paddingHorizontal: 7,
+    paddingVertical: 4,
   },
   actions: {
     flexDirection: "row",
@@ -741,7 +885,6 @@ const styles = StyleSheet.create({
     width: 36,
     height: 4,
     borderRadius: 2,
-    backgroundColor: "#D4D4D8",
     alignSelf: "center",
     marginTop: 10,
     marginBottom: 4,

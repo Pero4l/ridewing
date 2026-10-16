@@ -226,11 +226,11 @@ export default function ProfileScreen() {
                     icon="settings-outline"
                     onPress={() => router.push("/settings")}
                   />
-                  <ListRow
-                    title="Support"
-                    icon="help-circle-outline"
-                    onPress={() => router.push("/support")}
-                  />
+            <ListRow
+              title="Communities"
+              icon="people-outline"
+              onPress={() => router.push("/(tabs)/communities")}
+            />
                   <Pressable
                     onPress={confirmSignOut}
                     accessibilityRole="button"
@@ -321,7 +321,7 @@ function Stat({ value, label }: { value: number; label: string }) {
   return (
     <Pressable accessibilityRole="button" className="items-center gap-0.5 px-1 active:opacity-60">
       <T size={18} weight="800">
-        {value}
+        {String(value)}
       </T>
       <T size={12} tone="muted">
         {label}

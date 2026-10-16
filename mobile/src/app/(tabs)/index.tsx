@@ -216,7 +216,7 @@ export default function FeedScreen() {
                           }}
                         >
                           <T size={10} weight="800" color="#fff">
-                            {messageUnread > 9 ? "9+" : messageUnread}
+                            {messageUnread > 9 ? "9+" : String(messageUnread)}
                           </T>
                         </View>
                       ) : null}
@@ -300,9 +300,9 @@ export default function FeedScreen() {
                       backgroundColor: "#FF3040",
                     }}
                   />
-                  <T size={13} weight="700" numberOfLines={1} className="flex-1">
-                    {rides.length} live ride{rides.length === 1 ? "" : "s"} — tap to join
-                  </T>
+                          <T size={13} weight="700" numberOfLines={1} className="flex-1">
+                            {`${rides.length} live ride${rides.length === 1 ? "" : "s"} — tap to join`}
+                          </T>
                   <Ionicons name="chevron-forward" size={15} color={colors.muted} />
                 </Pressable>
               ) : null}

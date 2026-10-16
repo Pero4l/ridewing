@@ -7,7 +7,7 @@ import { Ionicons } from "@expo/vector-icons";
 import Constants from "expo-constants";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
-import { Alert, ScrollView, StyleSheet, View } from "react-native";
+import { Alert, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ErrorBanner } from "@/components/auth";
@@ -33,12 +33,14 @@ import {
 } from "@/lib/api";
 import { usePalette } from "@/lib/palette";
 import { useSession } from "@/lib/session";
+import { useTheme } from "@/lib/theme";
 import { isPasswordValid, PASSWORD_HINT } from "@/lib/validation";
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const { colors } = usePalette();
   const { user, logout } = useSession();
+  const { preference, setPreference } = useTheme();
 
   // ── server URL ────────────────────────────────────────────────────────────
   const [baseUrl, setBaseUrlState] = useState(getBaseUrl());
@@ -66,7 +68,8 @@ export default function SettingsScreen() {
     }
   }
 
-  // ── change password ───────────────────────────────────────────────────────
+  // ── change password (collapsed by default) ──────────────────────────
+  const [securityOpen, setSecurityOpen] = useState(false);
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [passwordError, setPasswordError] = useState<string | null>(null);
@@ -135,44 +138,92 @@ export default function SettingsScreen() {
           />
         </Card>
 
-        {/* ══ SECURITY ═════════════════════════════════════════════════ */}
+        {/* ══ APPEARANCE ═══════════════════════════════════════════════ */}
         <T size={11} weight="700" style={[styles.sectionLabel, { color: colors.muted }]}>
-          SECURITY
+          APPEARANCE
         </T>
-        <Card style={styles.group}>
-          <T size={15} weight="600" style={styles.groupHeading}>
-            Change password
-          </T>
-          <View style={styles.fieldStack}>
-            <Field
-              label="Current password"
-              value={current}
-              onChangeText={setCurrent}
-              secureTextEntry
-              autoCapitalize="none"
-              textContentType="password"
-            />
-            <Field
-              label="New password"
-              value={next}
-              onChangeText={setNext}
-              secureTextEntry
-              autoCapitalize="none"
-              textContentType="newPassword"
-              hint={PASSWORD_HINT}
-            />
-          </View>
-          <ErrorBanner message={passwordError} />
-          <Button
-            label="Update password"
-            onPress={changePassword}
-            loading={passwordBusy}
-            disabled={!current || !isPasswordValid(next)}
+        <Card padded={false} style={styles.group}>
+          <ThemeOption
+            title="System"
+            subtitle="Follow your device"
+            icon="phone-portrait-outline"
+            selected={preference === "system"}
+            onPress={() => setPreference("system")}
+            first
           />
-          <T size={11} tone="muted" style={styles.caption}>
-            Changing your password signs out every device.
-          </T>
+          <Divider />
+          <ThemeOption
+            title="Light"
+            subtitle="Bright canvas, always"
+            icon="sunny-outline"
+            selected={preference === "light"}
+            onPress={() => setPreference("light")}
+          />
+          <Divider />
+          <ThemeOption
+            title="Dark"
+            subtitle="Easy on the eyes at night"
+            icon="moon-outline"
+            selected={preference === "dark"}
+            onPress={() => setPreference("dark")}
+            last
+          />
         </Card>
+
+        {/* ══ SECURITY (collapsed until opened) ══════════════════════════ */}
+        <Pressable
+          onPress={() => setSecurityOpen((open) => !open)}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: securityOpen }}
+          accessibilityLabel="Security settings"
+          className="flex-row items-center justify-between active:opacity-70"
+          style={[styles.sectionLabel, { marginBottom: securityOpen ? 6 : 0 }]}
+        >
+          <T size={11} weight="700" style={{ color: colors.muted, letterSpacing: 0.6 }}>
+            SECURITY
+          </T>
+          <Ionicons
+            name={securityOpen ? "chevron-up" : "chevron-down"}
+            size={16}
+            color={colors.muted}
+          />
+        </Pressable>
+        {securityOpen ? (
+          <Card style={styles.group}>
+            <T size={15} weight="600" style={styles.groupHeading}>
+              Change password
+            </T>
+            <View style={styles.fieldStack}>
+              <Field
+                label="Current password"
+                value={current}
+                onChangeText={setCurrent}
+                secureTextEntry
+                autoCapitalize="none"
+                textContentType="password"
+              />
+              <Field
+                label="New password"
+                value={next}
+                onChangeText={setNext}
+                secureTextEntry
+                autoCapitalize="none"
+                textContentType="newPassword"
+                hint={PASSWORD_HINT}
+              />
+            </View>
+            <ErrorBanner message={passwordError} />
+            <Button
+              label="Update password"
+              onPress={changePassword}
+              loading={passwordBusy}
+              disabled={!current || !isPasswordValid(next)}
+            />
+            <T size={11} tone="muted" style={styles.caption}>
+              Changing your password signs out every device.
+            </T>
+          </Card>
+        ) : null}
 
         {/* ══ SERVER ═══════════════════════════════════════════════════ */}
         <T size={11} weight="700" style={[styles.sectionLabel, { color: colors.muted }]}>
@@ -282,6 +333,41 @@ export default function SettingsScreen() {
         </T>
       </ScrollView>
     </Screen>
+  );
+}
+
+function ThemeOption({
+  title,
+  subtitle,
+  icon,
+  selected,
+  onPress,
+}: {
+  title: string;
+  subtitle: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  selected: boolean;
+  onPress: () => void;
+  first?: boolean;
+  last?: boolean;
+}) {
+  const { colors } = usePalette();
+  return (
+    <ListRow
+      title={title}
+      subtitle={subtitle}
+      icon={icon}
+      iconTone={selected ? "accent" : "muted"}
+      showChevron={false}
+      onPress={onPress}
+      right={
+        selected ? (
+          <Ionicons name="checkmark-circle" size={22} color={colors.accent} />
+        ) : (
+          <View style={{ width: 22 }} />
+        )
+      }
+    />
   );
 }
 

@@ -50,7 +50,8 @@
         {
           "photosPermission": "RideWing needs access to your photos so you can attach pictures to posts."
         }
-      ]
+      ],
+      "expo-video"
     ],
     "experiments": {
       "typedRoutes": true,

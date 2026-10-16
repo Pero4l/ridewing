@@ -28,6 +28,7 @@ import {
 } from "@/components/ui";
 import { ApiError, api } from "@/lib/api";
 import { relativeTime } from "@/lib/format";
+import { usePalette } from "@/lib/palette";
 import { useSession } from "@/lib/session";
 // Type-only, so it costs nothing at runtime. `VoiceRoom` itself is imported
 // dynamically when the rider actually joins voice — see enterVoice().
@@ -37,6 +38,7 @@ import type { Peer, Ride } from "@/lib/types";
 
 export default function RideScreen() {
   const { rideId } = useLocalSearchParams<{ rideId: string }>();
+  const { colors } = usePalette();
   const { user } = useSession();
 
   const [ride, setRide] = useState<Ride | null>(null);
@@ -267,8 +269,15 @@ export default function RideScreen() {
           {ended ? (
             <Badge label="ENDED" tone="muted" />
           ) : (
-            <Row gap={6} className="shrink-0 rounded-full bg-accentSoft px-2.5 py-1">
-              <View className="h-2 w-2 rounded-full bg-accent" />
+            <Row
+              gap={6}
+              className="shrink-0 rounded-full px-2.5 py-1"
+              style={{ backgroundColor: colors.accentSoft }}
+            >
+              <View
+                className="h-2 w-2 rounded-full"
+                style={{ backgroundColor: colors.accent }}
+              />
               <T size={11} weight="700" tone="accent" className="uppercase">
                 Live
               </T>
@@ -303,7 +312,7 @@ export default function RideScreen() {
                     <Ionicons
                       name={micReady ? "mic" : "mic-off"}
                       size={16}
-                      className={micReady ? "text-accent" : "text-faint"}
+                      color={micReady ? colors.accent : colors.faint}
                     />
                     <T size={13} muted>
                       {micReady ? `${peers.length} connected` : "Waiting for microphone…"}
@@ -334,19 +343,20 @@ export default function RideScreen() {
                     accessibilityRole="button"
                     accessibilityLabel="Hold to talk"
                     accessibilityHint="Press and hold while speaking"
-                    className={`items-center gap-1 rounded-2xl py-7 ${
-                      transmitting ? "bg-danger" : "bg-accentSoft"
-                    }`}
+                    className="items-center gap-1 rounded-2xl py-7"
+                    style={{
+                      backgroundColor: transmitting ? colors.danger : colors.accentSoft,
+                    }}
                   >
                     <Ionicons
                       name="mic"
                       size={28}
-                      className={transmitting ? "text-onAccent" : "text-accent"}
+                      color={transmitting ? colors.onAccent : colors.accent}
                     />
                     <T
                       size={13}
                       weight="700"
-                      className={transmitting ? "text-onAccent" : "text-accent"}
+                      color={transmitting ? colors.onAccent : colors.accent}
                     >
                       {transmitting ? "Transmitting" : "Hold to talk"}
                     </T>
@@ -358,7 +368,10 @@ export default function RideScreen() {
                 )}
 
                 {peers.length ? (
-                  <View className="gap-1 rounded-2xl bg-raised p-1.5">
+                  <View
+                    className="gap-1 rounded-2xl p-1.5"
+                    style={{ backgroundColor: colors.raised }}
+                  >
                     {peers.map((peer) => (
                       <Row
                         key={peer.socketId}
@@ -376,7 +389,10 @@ export default function RideScreen() {
                         </Row>
                         <Row gap={4} className="shrink">
                           {peer.state.isTransmitting ? (
-                            <View className="h-1.5 w-1.5 rounded-full bg-success" />
+                            <View
+                              className="h-1.5 w-1.5 rounded-full"
+                              style={{ backgroundColor: colors.success }}
+                            />
                           ) : null}
                           <T
                             size={12}
@@ -460,7 +476,7 @@ export default function RideScreen() {
 
         {/* Roster */}
         <View className="gap-1.5">
-          <SectionTitle>Riders ({joined.length}/{ride.maxParticipants})</SectionTitle>
+          <SectionTitle>{`Riders (${joined.length}/${ride.maxParticipants})`}</SectionTitle>
           <Card padded={false} className="overflow-hidden">
             {joined.length ? (
               joined.map((participant, index) => (
@@ -513,7 +529,10 @@ export default function RideScreen() {
             <T size={13} weight="600" muted>
               Invite code
             </T>
-            <View className="items-center rounded-2xl bg-raised py-3">
+            <View
+              className="items-center rounded-2xl py-3"
+              style={{ backgroundColor: colors.raised }}
+            >
               <T size={28} weight="800" style={{ letterSpacing: 6 }}>
                 {ride.inviteCode}
               </T>

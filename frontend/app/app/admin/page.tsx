@@ -317,6 +317,7 @@ function Overview({ onGo }: { onGo: (tab: Tab) => void }) {
 // ─── Users ──────────────────────────────────────────────────────────────────
 
 function UsersPanel({ toast }: { toast: ReturnType<typeof useToast> }) {
+  const { user: me } = useSession();
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [total, setTotal] = useState(0);
   const [pages, setPages] = useState(1);
@@ -327,10 +328,13 @@ function UsersPanel({ toast }: { toast: ReturnType<typeof useToast> }) {
   const [roleFilter, setRoleFilter] = useState<"all" | "rider" | "admin">("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [busyId, setBusyId] = useState<string | null>(null);
+  // Per-action busy key (`${userId}:${action}`) so only the tapped button
+  // spins — a row-level flag lit up every button in the row at once.
+  const [busyKey, setBusyKey] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [suspendTarget, setSuspendTarget] = useState<AdminUser | null>(null);
   const [suspendReason, setSuspendReason] = useState("");
+  const [roleTarget, setRoleTarget] = useState<AdminUser | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -340,16 +344,20 @@ function UsersPanel({ toast }: { toast: ReturnType<typeof useToast> }) {
     return () => clearTimeout(t);
   }, [q]);
 
+  const fetchUsers = useCallback(async (pageNum: number, status: string, role: string, query: string) => {
+    const params = new URLSearchParams({ limit: "20", page: String(pageNum) });
+    if (status !== "all") params.set("status", status);
+    if (role !== "all") params.set("role", role);
+    if (query) params.set("q", query);
+    return api.get<{ users: AdminUser[]; total: number; pages: number }>(
+      `/api/admin/users?${params.toString()}`,
+    );
+  }, []);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams({ limit: "20", page: String(page) });
-      if (statusFilter !== "all") params.set("status", statusFilter);
-      if (roleFilter !== "all") params.set("role", roleFilter);
-      if (debouncedQ) params.set("q", debouncedQ);
-      const res = await api.get<{ users: AdminUser[]; total: number; pages: number }>(
-        `/api/admin/users?${params.toString()}`,
-      );
+      const res = await fetchUsers(page, statusFilter, roleFilter, debouncedQ);
       setUsers(res.users);
       setTotal(res.total);
       setPages(res.pages || 1);
@@ -359,26 +367,45 @@ function UsersPanel({ toast }: { toast: ReturnType<typeof useToast> }) {
     } finally {
       setLoading(false);
     }
-  }, [page, statusFilter, roleFilter, debouncedQ]);
+  }, [page, statusFilter, roleFilter, debouncedQ, fetchUsers]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  async function mutate(id: string, fn: () => Promise<{ user: AdminUser } | { ok: boolean }>, success: string) {
-    setBusyId(id);
+  // Background refresh after a mutation: updates rows without flashing the
+  // full-screen spinner over a list the admin is looking at.
+  const refreshQuiet = useCallback(async () => {
+    try {
+      const res = await fetchUsers(page, statusFilter, roleFilter, debouncedQ);
+      setUsers(res.users);
+      setTotal(res.total);
+      setPages(res.pages || 1);
+    } catch {
+      // The row already shows the mutation result; a stale list is fine.
+    }
+  }, [page, statusFilter, roleFilter, debouncedQ, fetchUsers]);
+
+  async function mutate(
+    id: string,
+    action: "unsuspend" | "role" | "revoke",
+    fn: () => Promise<{ user: AdminUser } | { ok: boolean }>,
+    success: string,
+  ) {
+    const key = `${id}:${action}`;
+    setBusyKey(key);
     try {
       const res = await fn();
       if ("user" in res) {
         setUsers((list) => list.map((u) => (u.id === id ? (res.user as AdminUser) : u)));
       } else {
-        void load();
+        void refreshQuiet();
       }
       toast.success(success);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Action failed.");
     } finally {
-      setBusyId(null);
+      setBusyKey((k) => (k === key ? null : k));
     }
   }
 
@@ -390,18 +417,41 @@ function UsersPanel({ toast }: { toast: ReturnType<typeof useToast> }) {
   async function confirmSuspend() {
     if (!suspendTarget) return;
     const target = suspendTarget;
-    setBusyId(target.id);
+    const key = `${target.id}:suspend`;
+    setBusyKey(key);
     try {
       const res = await api.post<{ user: AdminUser }>(`/api/admin/users/${target.id}/suspend`, {
         reason: suspendReason.trim() || undefined,
       });
       setUsers((list) => list.map((u) => (u.id === target.id ? res.user : u)));
-      toast.success(`@${target.username} suspended`);
+      toast.success(`@${target.username} suspended — signed out everywhere`);
       setSuspendTarget(null);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Could not suspend user.");
     } finally {
-      setBusyId(null);
+      setBusyKey((k) => (k === key ? null : k));
+    }
+  }
+
+  async function confirmRoleChange() {
+    if (!roleTarget) return;
+    const target = roleTarget;
+    const nextRole = target.role === "admin" ? "rider" : "admin";
+    const key = `${target.id}:role`;
+    setBusyKey(key);
+    try {
+      const res = await api.patch<{ user: AdminUser }>(`/api/admin/users/${target.id}/role`, {
+        role: nextRole,
+      });
+      setUsers((list) => list.map((u) => (u.id === target.id ? res.user : u)));
+      toast.success(
+        nextRole === "admin" ? `@${target.username} is now an admin` : `@${target.username} is now a rider`,
+      );
+      setRoleTarget(null);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Could not change role.");
+    } finally {
+      setBusyKey((k) => (k === key ? null : k));
     }
   }
 
@@ -492,23 +542,15 @@ function UsersPanel({ toast }: { toast: ReturnType<typeof useToast> }) {
                   <UserTableRow
                     key={u.id}
                     user={u}
-                    busy={busyId === u.id}
+                    isSelf={me?.id === u.id}
+                    busyKey={busyKey}
                     expanded={expandedId === u.id}
                     onToggle={() => setExpandedId((id) => (id === u.id ? null : u.id))}
                     onSuspend={() => suspend(u)}
-                    onUnsuspend={() => void mutate(u.id, () => api.post<{ user: AdminUser }>(`/api/admin/users/${u.id}/unsuspend`), `@${u.username} reinstated`)}
-                    onRole={() =>
-                      void mutate(
-                        u.id,
-                        () =>
-                          api.patch<{ user: AdminUser }>(`/api/admin/users/${u.id}/role`, {
-                            role: u.role === "admin" ? "rider" : "admin",
-                          }),
-                        u.role === "admin" ? `@${u.username} is now a rider` : `@${u.username} is now an admin`,
-                      )
-                    }
+                    onUnsuspend={() => void mutate(u.id, "unsuspend", () => api.post<{ user: AdminUser }>(`/api/admin/users/${u.id}/unsuspend`), `@${u.username} reinstated — they can sign in again`)}
+                    onRole={() => setRoleTarget(u)}
                     onRevoke={() =>
-                      void mutate(u.id, () => api.post<{ ok: boolean }>(`/api/admin/users/${u.id}/revoke-sessions`), `Sessions revoked for @${u.username}`)
+                      void mutate(u.id, "revoke", () => api.post<{ ok: boolean }>(`/api/admin/users/${u.id}/revoke-sessions`), `All sessions revoked for @${u.username}`)
                     }
                   />
                 ))}
@@ -522,23 +564,15 @@ function UsersPanel({ toast }: { toast: ReturnType<typeof useToast> }) {
               <UserCard
                 key={u.id}
                 user={u}
-                busy={busyId === u.id}
+                isSelf={me?.id === u.id}
+                busyKey={busyKey}
                 expanded={expandedId === u.id}
                 onToggle={() => setExpandedId((id) => (id === u.id ? null : u.id))}
                 onSuspend={() => suspend(u)}
-                onUnsuspend={() => void mutate(u.id, () => api.post<{ user: AdminUser }>(`/api/admin/users/${u.id}/unsuspend`), `@${u.username} reinstated`)}
-                onRole={() =>
-                  void mutate(
-                    u.id,
-                    () =>
-                      api.patch<{ user: AdminUser }>(`/api/admin/users/${u.id}/role`, {
-                        role: u.role === "admin" ? "rider" : "admin",
-                      }),
-                    u.role === "admin" ? `@${u.username} is now a rider` : `@${u.username} is now an admin`,
-                  )
-                }
+                onUnsuspend={() => void mutate(u.id, "unsuspend", () => api.post<{ user: AdminUser }>(`/api/admin/users/${u.id}/unsuspend`), `@${u.username} reinstated — they can sign in again`)}
+                onRole={() => setRoleTarget(u)}
                 onRevoke={() =>
-                  void mutate(u.id, () => api.post<{ ok: boolean }>(`/api/admin/users/${u.id}/revoke-sessions`), `Sessions revoked for @${u.username}`)
+                  void mutate(u.id, "revoke", () => api.post<{ ok: boolean }>(`/api/admin/users/${u.id}/revoke-sessions`), `All sessions revoked for @${u.username}`)
                 }
               />
             ))}
@@ -586,8 +620,38 @@ function UsersPanel({ toast }: { toast: ReturnType<typeof useToast> }) {
               <Button variant="secondary" full onClick={() => setSuspendTarget(null)}>
                 Cancel
               </Button>
-              <Button variant="danger" full loading={busyId === suspendTarget.id} onClick={confirmSuspend}>
+              <Button variant="danger" full loading={busyKey === `${suspendTarget.id}:suspend`} onClick={confirmSuspend}>
                 Suspend rider
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Role-change confirm dialog */}
+      {roleTarget && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-label={`Change role for @${roleTarget.username}`}>
+          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl dark:bg-zinc-900">
+            <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-100">
+              {roleTarget.role === "admin"
+                ? `Demote @${roleTarget.username} to rider?`
+                : `Make @${roleTarget.username} an admin?`}
+            </h3>
+            <p className="mt-1 text-sm text-zinc-500">
+              {roleTarget.role === "admin"
+                ? "They will lose access to this console immediately. The last admin cannot be demoted."
+                : "They will gain full access to this console: suspend users, change roles and resolve tickets."}
+            </p>
+            <div className="mt-4 flex gap-2">
+              <Button variant="secondary" full onClick={() => setRoleTarget(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant={roleTarget.role === "admin" ? "danger" : "primary"}
+                full
+                loading={busyKey === `${roleTarget.id}:role`}
+                onClick={confirmRoleChange}
+              >
+                {roleTarget.role === "admin" ? "Demote to rider" : "Make admin"}
               </Button>
             </div>
           </div>
@@ -596,7 +660,6 @@ function UsersPanel({ toast }: { toast: ReturnType<typeof useToast> }) {
     </div>
   );
 }
-
 function RoleBadge({ role }: { role: string }) {
   return <Badge tone={role === "admin" ? "blue" : "zinc"}>{role === "admin" ? "Admin" : "Rider"}</Badge>;
 }
@@ -607,35 +670,45 @@ function StatusBadge({ status }: { status: string }) {
 
 function UserActions({
   user,
-  busy,
+  isSelf,
+  busyKey,
   onSuspend,
   onUnsuspend,
   onRole,
   onRevoke,
 }: {
   user: AdminUser;
-  busy: boolean;
+  isSelf: boolean;
+  busyKey: string | null;
   onSuspend: () => void;
   onUnsuspend: () => void;
   onRole: () => void;
   onRevoke: () => void;
 }) {
   const suspended = user.status === "suspended";
+  const busy = (action: string) => busyKey === `${user.id}:${action}`;
+  if (isSelf) {
+    return (
+      <p className="rounded-xl bg-zinc-100 px-3 py-2 text-xs font-medium text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+        This is you — actions are disabled on your own account.
+      </p>
+    );
+  }
   return (
     <div className="flex flex-wrap gap-1.5">
       {suspended ? (
-        <Button size="sm" variant="secondary" loading={busy} onClick={onUnsuspend}>
+        <Button size="sm" variant="secondary" loading={busy("unsuspend")} onClick={onUnsuspend}>
           Reinstate
         </Button>
       ) : (
-        <Button size="sm" variant="danger" loading={busy} onClick={onSuspend}>
+        <Button size="sm" variant="danger" loading={busy("suspend")} onClick={onSuspend}>
           Suspend
         </Button>
       )}
-      <Button size="sm" variant="secondary" loading={busy} onClick={onRole}>
+      <Button size="sm" variant="secondary" loading={busy("role")} onClick={onRole}>
         {user.role === "admin" ? "Make rider" : "Make admin"}
       </Button>
-      <Button size="sm" variant="ghost" loading={busy} onClick={onRevoke} title="Sign them out everywhere">
+      <Button size="sm" variant="ghost" loading={busy("revoke")} onClick={onRevoke} title="Sign them out everywhere">
         Revoke sessions
       </Button>
     </div>
@@ -644,7 +717,8 @@ function UserActions({
 
 function UserTableRow(props: {
   user: AdminUser;
-  busy: boolean;
+  isSelf: boolean;
+  busyKey: string | null;
   expanded: boolean;
   onToggle: () => void;
   onSuspend: () => void;
@@ -660,7 +734,14 @@ function UserTableRow(props: {
           <div className="flex items-center gap-3">
             <Avatar name={u.displayName} username={u.username} image={u.profileImage} size={36} />
             <div className="min-w-0">
-              <p className="truncate font-semibold text-zinc-900 dark:text-zinc-100">{u.displayName}</p>
+              <p className="truncate font-semibold text-zinc-900 dark:text-zinc-100">
+                {u.displayName}{" "}
+                {props.isSelf && (
+                  <span className="ml-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                    You
+                  </span>
+                )}
+              </p>
               <p className="truncate text-xs text-zinc-400">@{u.username} · {u.email ?? "no email"}</p>
             </div>
           </div>
@@ -701,7 +782,7 @@ function UserTableRow(props: {
                   Last seen {u.lastSeenAt ? timeAgo(u.lastSeenAt) : "never"} · joined {timeAgo(u.createdAt)}
                 </p>
               </div>
-              <UserActions user={u} busy={props.busy} onSuspend={props.onSuspend} onUnsuspend={props.onUnsuspend} onRole={props.onRole} onRevoke={props.onRevoke} />
+              <UserActions user={u} isSelf={props.isSelf} busyKey={props.busyKey} onSuspend={props.onSuspend} onUnsuspend={props.onUnsuspend} onRole={props.onRole} onRevoke={props.onRevoke} />
             </div>
           </td>
         </tr>
@@ -712,7 +793,8 @@ function UserTableRow(props: {
 
 function UserCard(props: {
   user: AdminUser;
-  busy: boolean;
+  isSelf: boolean;
+  busyKey: string | null;
   expanded: boolean;
   onToggle: () => void;
   onSuspend: () => void;
@@ -726,7 +808,14 @@ function UserCard(props: {
       <button onClick={props.onToggle} className="flex w-full items-center gap-3 text-left">
         <Avatar name={u.displayName} username={u.username} image={u.profileImage} size={44} />
         <div className="min-w-0 flex-1">
-          <p className="truncate font-bold text-zinc-900 dark:text-zinc-100">{u.displayName}</p>
+          <p className="truncate font-bold text-zinc-900 dark:text-zinc-100">
+            {u.displayName}{" "}
+            {props.isSelf && (
+              <span className="ml-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                You
+              </span>
+            )}
+          </p>
           <p className="truncate text-xs text-zinc-400">@{u.username}</p>
           <div className="mt-1.5 flex gap-1.5">
             <RoleBadge role={u.role} />
@@ -740,7 +829,7 @@ function UserCard(props: {
             {u.email ?? "no email"}
             {u.suspensionReason ? ` · Suspended: ${u.suspensionReason}` : ""}
           </p>
-          <UserActions user={u} busy={props.busy} onSuspend={props.onSuspend} onUnsuspend={props.onUnsuspend} onRole={props.onRole} onRevoke={props.onRevoke} />
+          <UserActions user={u} isSelf={props.isSelf} busyKey={props.busyKey} onSuspend={props.onSuspend} onUnsuspend={props.onUnsuspend} onRole={props.onRole} onRevoke={props.onRevoke} />
         </div>
       )}
     </Card>

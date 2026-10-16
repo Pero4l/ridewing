@@ -74,10 +74,23 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="communities"
         options={{
-          title: "Groups",
+          title: "Communities",
           tabBarIcon: ({ color, focused }) => (
             <TabIcon
               name={focused ? "people" : "people-outline"}
+              color={color}
+              focused={focused}
+            />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="reels"
+        options={{
+          title: "Reels",
+          tabBarIcon: ({ color, focused }) => (
+            <TabIcon
+              name={focused ? "film" : "film-outline"}
               color={color}
               focused={focused}
             />

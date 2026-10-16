@@ -57,7 +57,12 @@ export default function MessagesScreen() {
         keyExtractor={(item) => item.id}
         contentContainerStyle={{ paddingBottom: insets.bottom + 96 }}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void load(); }} />
+          <RefreshControl
+            refreshing={refreshing}
+            tintColor={colors.muted}
+            colors={[colors.accent]}
+            onRefresh={() => { setRefreshing(true); void load(); }}
+          />
         }
         ListHeaderComponent={
           <View style={[styles.header, { paddingTop: insets.top + 14 }]}>
@@ -93,7 +98,7 @@ export default function MessagesScreen() {
               {/* Avatar */}
               <View style={styles.avatarWrap}>
                 {item.community?.image ? (
-                  <Image source={{ uri: item.community.image }} style={styles.avatar} contentFit="cover" />
+                  <Image source={{ uri: item.community.image }} style={[styles.avatar, { backgroundColor: colors.raised }]} contentFit="cover" />
                 ) : (
                   <Avatar user={other ?? null} size={52} />
                 )}
@@ -126,7 +131,7 @@ export default function MessagesScreen() {
                   {unread ? (
                     <View style={[styles.badge, { backgroundColor: colors.accent }]}>
                       <T size={11} weight="700" style={{ color: colors.onAccent } as never}>
-                        {item.unreadCount > 99 ? "99+" : item.unreadCount}
+                        {item.unreadCount > 99 ? "99+" : String(item.unreadCount)}
                       </T>
                     </View>
                   ) : null}
@@ -172,7 +177,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   avatarWrap: { position: "relative" },
-  avatar: { width: 52, height: 52, borderRadius: 26, backgroundColor: "#E4E4E7" },
+  avatar: { width: 52, height: 52, borderRadius: 26 },
   groupDot: {
     position: "absolute",
     bottom: 1,

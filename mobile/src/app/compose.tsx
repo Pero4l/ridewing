@@ -23,17 +23,18 @@ import { useSession } from "@/lib/session";
 import type { Post, PostMedia } from "@/lib/types";
 
 /**
- * Upload an image straight to the API as multipart form data.
+ * Uploads a picked asset straight to the API as multipart form data.
  *
  * `XMLHttpRequest` rather than `fetch`, because React Native's `fetch` cannot
  * send a FormData file part with the filename and content type the multer
  * middleware expects.
  */
-async function uploadImage(uri: string, mimeType: string): Promise<PostMedia> {
-  // The extension and type come from the asset itself: the picker may hand
-  // back a PNG or HEIC, and the upload middleware's file filter rejects
-  // parts whose declared type is not a real image type.
-  const extension = (mimeType.split("/")[1] ?? "jpeg").split("+")[0];
+async function uploadMedia(
+  uri: string,
+  mimeType: string,
+  kind: "image" | "video",
+): Promise<PostMedia> {
+  const extension = (mimeType.split("/")[1] ?? (kind === "video" ? "mp4" : "jpeg")).split("+")[0];
   const form = new FormData();
   // React Native's FormData accepts this {uri,name,type} shape for a file.
   form.append("file", {
@@ -47,7 +48,7 @@ async function uploadImage(uri: string, mimeType: string): Promise<PostMedia> {
   const { status, text } = await new Promise<{ status: number; text: string }>(
     (resolve, reject) => {
       const xhr = new XMLHttpRequest();
-      xhr.open("POST", `${getBaseUrl()}/api/upload/image`);
+      xhr.open("POST", `${getBaseUrl()}/api/upload/${kind}`);
       const token = getAccessToken();
       if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
       xhr.onload = () => resolve({ status: xhr.status, text: xhr.responseText });
@@ -56,28 +57,35 @@ async function uploadImage(uri: string, mimeType: string): Promise<PostMedia> {
     },
   );
 
-  // The upload endpoint answers `{ media: { url, width, height } }`.
+  // The upload endpoint answers `{ media: { url, width, height, ... } }`.
   // Reading `body.url` — which is always undefined — is what made every
   // photo upload fail with "Could not upload that photo."
   const body = JSON.parse(text || "{}") as {
-    media?: { url?: string; width?: number | null; height?: number | null };
+    media?: {
+      url?: string;
+      width?: number | null;
+      height?: number | null;
+      posterUrl?: string;
+      duration?: number | null;
+    };
     error?: { message?: string };
   };
   if (status >= 200 && status < 300 && body.media?.url) {
     return {
       url: body.media.url,
-      type: "image",
+      type: kind,
       width: body.media.width ?? undefined,
       height: body.media.height ?? undefined,
+      posterUrl: body.media.posterUrl,
     };
   }
-  throw new Error(body.error?.message ?? "Could not upload that photo.");
+  throw new Error(body.error?.message ?? `Could not upload that ${kind === "video" ? "video" : "photo"}.`);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function ComposeScreen() {
-  const { colors } = usePalette();
+  const { colors, dark } = usePalette();
   const insets = useSafeAreaInsets();
   const { user } = useSession();
 
@@ -92,28 +100,68 @@ export default function ComposeScreen() {
 
   // ── actions ────────────────────────────────────────────────────────────────
 
-  async function pickImage() {
+  async function pickImages() {
     setError(null);
+    const slots = 9 - media.length;
+    if (slots <= 0) return;
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      setError("RideWing needs access to your photos to attach one to a post.");
+      setError("RideWing needs access to your photos to attach them to a post.");
       return;
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
       quality: 0.85,
+      allowsMultipleSelection: true,
+      selectionLimit: slots,
+    });
+    if (result.canceled || !result.assets.length) return;
+
+    setUploading(true);
+    try {
+      for (const asset of result.assets) {
+        const uploaded = await uploadMedia(asset.uri, asset.mimeType ?? "image/jpeg", "image");
+        setMedia((current) => [...current, uploaded].slice(0, 9));
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not upload those photos.");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function pickVideo() {
+    setError(null);
+    if (media.length >= 9) return;
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      setError("RideWing needs access to your videos to attach one to a post.");
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["videos"],
       allowsMultipleSelection: false,
+      videoMaxDuration: 60,
     });
     if (result.canceled || !result.assets[0]) return;
 
     const asset = result.assets[0];
+    // `duration` is milliseconds. The backend caps uploads well above a
+    // minute, but reels are a 60-second format — reject early with a clear
+    // message instead of a mysterious server error.
+    if (asset.duration != null && asset.duration > 65_000) {
+      setError("Keep videos to 60 seconds or less.");
+      return;
+    }
+
     setUploading(true);
     try {
-      const uploaded = await uploadImage(asset.uri, asset.mimeType ?? "image/jpeg");
+      const uploaded = await uploadMedia(asset.uri, asset.mimeType ?? "video/mp4", "video");
       setMedia((current) => [...current, uploaded].slice(0, 9));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not upload that photo.");
+      setError(err instanceof Error ? err.message : "Could not upload that video.");
     } finally {
       setUploading(false);
     }
@@ -225,6 +273,7 @@ export default function ComposeScreen() {
               onChangeText={setContent}
               placeholder="What are you riding?"
               placeholderTextColor={colors.faint}
+              keyboardAppearance={dark ? "dark" : "light"}
               multiline
               maxLength={2000}
               autoFocus
@@ -236,7 +285,7 @@ export default function ComposeScreen() {
             />
           </View>
 
-          {/* Photo strip */}
+          {/* Media strip — photos and videos, in post order */}
           {media.length > 0 ? (
             <ScrollView
               horizontal
@@ -244,17 +293,22 @@ export default function ComposeScreen() {
               contentContainerStyle={styles.photoStrip}
             >
               {media.map((item, index) => (
-                <View key={item.url} style={styles.thumbWrap}>
+                <View key={`${item.url}-${index}`} style={styles.thumbWrap}>
                   <Image
-                    source={{ uri: item.url }}
+                    source={{ uri: item.type === "video" ? (item.posterUrl ?? item.url) : item.url }}
                     style={styles.thumb}
                     contentFit="cover"
                   />
+                  {item.type === "video" ? (
+                    <View style={styles.videoBadge}>
+                      <Ionicons name="play" size={16} color="#fff" />
+                    </View>
+                  ) : null}
                   {/* Remove overlay */}
                   <Pressable
                     onPress={() => removeMedia(index)}
                     accessibilityRole="button"
-                    accessibilityLabel="Remove photo"
+                    accessibilityLabel={`Remove ${item.type === "video" ? "video" : "photo"}`}
                     style={[
                       styles.removeBtn,
                       { backgroundColor: colors.ink + "CC" },
@@ -268,7 +322,7 @@ export default function ComposeScreen() {
           ) : null}
         </ScrollView>
 
-        {/* ── bottom toolbar ───────────────────────────────────────────────── */}
+        {/* ── bottom toolbar: photos, video, counters ────────────────── */}
         <View
           style={[
             styles.bottomBar,
@@ -279,27 +333,51 @@ export default function ComposeScreen() {
             },
           ]}
         >
-          <Pressable
-            onPress={pickImage}
-            disabled={uploading || media.length >= 9}
-            accessibilityRole="button"
-            accessibilityLabel={uploading ? "Uploading photo…" : "Add photo"}
-            hitSlop={8}
-            style={[
-              styles.photoBtn,
-              (uploading || media.length >= 9) && styles.photoBtnDisabled,
-            ]}
-          >
-            {uploading ? (
-              <ActivityIndicator size="small" color={colors.accent} />
-            ) : (
+          <View style={styles.attachRow}>
+            <Pressable
+              onPress={pickImages}
+              disabled={uploading || media.length >= 9}
+              accessibilityRole="button"
+              accessibilityLabel={uploading ? "Uploading…" : "Add photos"}
+              hitSlop={8}
+              style={[
+                styles.photoBtn,
+                (uploading || media.length >= 9) && styles.photoBtnDisabled,
+              ]}
+            >
+              {uploading ? (
+                <ActivityIndicator size="small" color={colors.accent} />
+              ) : (
+                <Ionicons
+                  name="image-outline"
+                  size={24}
+                  color={media.length >= 9 ? colors.faint : colors.accent}
+                />
+              )}
+            </Pressable>
+            <Pressable
+              onPress={pickVideo}
+              disabled={uploading || media.length >= 9}
+              accessibilityRole="button"
+              accessibilityLabel={uploading ? "Uploading…" : "Add a video (up to 60 seconds)"}
+              hitSlop={8}
+              style={[
+                styles.photoBtn,
+                (uploading || media.length >= 9) && styles.photoBtnDisabled,
+              ]}
+            >
               <Ionicons
-                name="image-outline"
+                name="videocam-outline"
                 size={24}
                 color={media.length >= 9 ? colors.faint : colors.accent}
               />
-            )}
-          </Pressable>
+            </Pressable>
+            {media.length > 0 ? (
+              <T size={12} weight="600" tone="muted">
+                {`${media.length}/9`}
+              </T>
+            ) : null}
+          </View>
 
           <T size={12} color={remaining < 100 ? colors.warning : colors.faint}>
             {remaining}
@@ -390,6 +468,22 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
+  },
+  videoBadge: {
+    position: "absolute",
+    left: 4,
+    bottom: 4,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  attachRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
   },
   // Bottom toolbar
   bottomBar: {

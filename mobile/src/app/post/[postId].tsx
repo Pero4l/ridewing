@@ -43,7 +43,7 @@ import type { Page, Post, PostCommentItem } from "@/lib/types";
 export default function PostScreen() {
   const { postId } = useLocalSearchParams<{ postId: string }>();
   const router = useRouter();
-  const { colors } = usePalette();
+  const { colors, dark } = usePalette();
   const insets = useSafeAreaInsets();
   const { user } = useSession();
 
@@ -284,6 +284,7 @@ export default function PostScreen() {
           onChangeText={setDraft}
           placeholder="Add a comment…"
           placeholderTextColor={colors.faint}
+          keyboardAppearance={dark ? "dark" : "light"}
           multiline
           maxLength={500}
           style={[styles.input, { backgroundColor: colors.raised, color: colors.ink }]}

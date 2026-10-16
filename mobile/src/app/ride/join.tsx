@@ -30,7 +30,7 @@ export default function JoinRideScreen() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const { colors } = usePalette();
+  const { colors, dark } = usePalette();
 
   const normalised = code.trim().toUpperCase();
 
@@ -103,6 +103,7 @@ export default function JoinRideScreen() {
               onChangeText={(text) => setCode(text.toUpperCase().replace(/[^A-Z0-9]/g, ""))}
               placeholder="A1B2C3"
               placeholderTextColor={colors.faint}
+              keyboardAppearance={dark ? "dark" : "light"}
               autoCapitalize="characters"
               autoCorrect={false}
               autoFocus

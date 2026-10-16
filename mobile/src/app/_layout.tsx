@@ -11,8 +11,9 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { useColorScheme } from "nativewind";
 
-import { palette } from "@/lib/palette";
+import { palette, usePalette } from "@/lib/palette";
 import { SessionProvider, useSession } from "@/lib/session";
+import { ThemeProvider } from "@/lib/theme";
 
 type StackScreenConfig = {
   name: string;
@@ -52,7 +53,9 @@ function RootNavigator() {
     { name: "community/[slug]", options: { title: "Community" } },
     { name: "community/new", options: { title: "New community" } },
     { name: "thread/[conversationId]", options: { headerShown: false } },
-    { name: "profile/[username]", options: { title: "Rider" } },
+    // The profile screen draws its own IG-style top bar (back + username),
+    // so the native header stays off — otherwise title and back button double up.
+    { name: "profile/[username]", options: { headerShown: false } },
     { name: "notifications", options: { title: "Notifications" } },
     { name: "search", options: { title: "Search riders" } },
     { name: "settings", options: { title: "Settings" } },
@@ -105,9 +108,11 @@ function RootNavigator() {
 export default function RootLayout() {
   return (
     <SafeAreaProvider>
-      <SessionProvider>
-        <RootNavigator />
-      </SessionProvider>
+      <ThemeProvider>
+        <SessionProvider>
+          <RootNavigator />
+        </SessionProvider>
+      </ThemeProvider>
     </SafeAreaProvider>
   );
 }
@@ -120,26 +125,32 @@ export default function RootLayout() {
  * navigator, so a failure shows an explanation and a retry instead.
  */
 export function ErrorBoundary({ error, retry }: { error: Error; retry: () => void }) {
+  const { colors } = usePalette();
   return (
     <SafeAreaProvider>
-      <ScrollView className="flex-1 bg-canvas" contentContainerStyle={{ padding: 24, gap: 12 }}>
-        <Text className="text-2xl font-extrabold text-ink">Something broke</Text>
-        <Text className="text-[15px] text-muted">
+      <ScrollView
+        className="flex-1"
+        style={{ backgroundColor: colors.canvas }}
+        contentContainerStyle={{ padding: 24, gap: 12 }}
+      >
+        <Text className="text-2xl font-extrabold" style={{ color: colors.ink }}>Something broke</Text>
+        <Text className="text-[15px]" style={{ color: colors.muted }}>
           The app hit an unexpected error while rendering this screen.
         </Text>
-        <View className="rounded-md bg-raised px-3 py-3">
-          <Text className="text-[13px] text-ink" selectable>
+        <View className="rounded-md px-3 py-3" style={{ backgroundColor: colors.raised }}>
+          <Text className="text-[13px]" style={{ color: colors.ink }} selectable>
             {error?.message ?? "Unknown error"}
           </Text>
         </View>
         <Pressable
           accessibilityRole="button"
           onPress={retry}
-          className="items-center rounded-md bg-accent px-4 py-3.5"
+          className="items-center rounded-md px-4 py-3.5"
+          style={{ backgroundColor: colors.accent }}
         >
-          <Text className="text-[15px] font-semibold text-onAccent">Try again</Text>
+          <Text className="text-[15px] font-semibold" style={{ color: colors.onAccent }}>Try again</Text>
         </Pressable>
-        <Text className="text-[11px] text-faint">
+        <Text className="text-[11px]" style={{ color: colors.faint }}>
           If this keeps happening, restart the app. If you are running in Expo Go, note that
           ride voice needs a development build.
         </Text>

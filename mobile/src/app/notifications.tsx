@@ -11,7 +11,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import {
   Avatar,
-  Badge,
   Divider,
   EmptyState,
   ErrorState,
@@ -58,13 +57,13 @@ function describe(item: NotificationItem): NoteMeta {
     case "ride_signal":
       return { icon: "warning-outline", bg: "dangerSoft", tone: "danger", label: `${who} raised a roadside signal` };
     case "community_join_request":
-      return { icon: "people-outline", bg: "accentSoft", tone: "accent", label: `${who} asked to join your group` };
+      return { icon: "people-outline", bg: "accentSoft", tone: "accent", label: `${who} asked to join your community` };
     case "community_join_approved":
-      return { icon: "checkmark-circle-outline", bg: "accentSoft", tone: "success", label: "Your request to join a group was approved" };
+      return { icon: "checkmark-circle-outline", bg: "accentSoft", tone: "success", label: "Your request to join a community was approved" };
     case "community_join_rejected":
-      return { icon: "close-circle-outline", bg: "dangerSoft", tone: "danger", label: "Your request to join a group was declined" };
+      return { icon: "close-circle-outline", bg: "dangerSoft", tone: "danger", label: "Your request to join a community was declined" };
     case "community_role_changed":
-      return { icon: "shield-outline", bg: "raised", tone: "muted", label: "Your role in a group changed" };
+      return { icon: "shield-outline", bg: "raised", tone: "muted", label: "Your role in a community changed" };
     case "support_ticket":
       return { icon: "help-circle-outline", bg: "raised", tone: "muted", label: "We replied to your support ticket" };
     default:
@@ -250,6 +249,8 @@ export default function NotificationsScreen() {
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
+            tintColor={colors.muted}
+            colors={[colors.accent]}
             onRefresh={() => {
               setRefreshing(true);
               void load();
@@ -354,18 +355,38 @@ export default function NotificationsScreen() {
                   },
                 ]}
               >
-                {/* Coloured icon circle (40 × 40) */}
-                <View
-                  style={[
-                    styles.iconCircle,
-                    { backgroundColor: iconBg(bg) },
-                  ]}
-                >
-                  <Ionicons
-                    name={icon}
-                    size={18}
-                    color={iconColor(tone)}
-                  />
+                {/* Actor avatar with the activity-type icon badged on it */}
+                <View style={styles.avatarWrap}>
+                  {item.item.actor ? (
+                    <Avatar user={item.item.actor} size={44} />
+                  ) : (
+                    <View
+                      style={[
+                        styles.iconCircle,
+                        { backgroundColor: iconBg(bg) },
+                      ]}
+                    >
+                      <Ionicons
+                        name={icon}
+                        size={18}
+                        color={iconColor(tone)}
+                      />
+                    </View>
+                  )}
+                  {item.item.actor ? (
+                    <View
+                      style={[
+                        styles.typeBadge,
+                        { backgroundColor: iconBg(bg), borderColor: colors.surface },
+                      ]}
+                    >
+                      <Ionicons
+                        name={icon}
+                        size={11}
+                        color={iconColor(tone)}
+                      />
+                    </View>
+                  ) : null}
                 </View>
 
                 {/* Label + relative time */}
@@ -382,15 +403,12 @@ export default function NotificationsScreen() {
                   </T>
                 </View>
 
-                {/* Actor avatar + unread badge, right-aligned */}
-                <View style={styles.noteRight}>
-                  {item.item.actor ? (
-                    <Avatar user={item.item.actor} size={30} />
-                  ) : null}
-                  {unread ? (
-                    <Badge label="New" tone="accent" />
-                  ) : null}
-                </View>
+                {/* Unread dot */}
+                {unread ? (
+                  <View
+                    style={[styles.unreadDot, { backgroundColor: colors.accent }]}
+                  />
+                ) : null}
               </Pressable>
             </View>
           );
@@ -457,9 +475,25 @@ const styles = StyleSheet.create({
     minWidth: 0,
     gap: 3,
   },
-  noteRight: {
+  avatarWrap: {
+    position: "relative",
     flexShrink: 0,
+  },
+  typeBadge: {
+    position: "absolute",
+    bottom: -1,
+    right: -1,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
     alignItems: "center",
-    gap: 5,
+    justifyContent: "center",
+  },
+  unreadDot: {
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    flexShrink: 0,
   },
 });

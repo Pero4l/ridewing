@@ -20,9 +20,11 @@ import {
   unreachableBaseUrlHint,
 } from "@/lib/api";
 import { useSession } from "@/lib/session";
+import { usePalette } from "@/lib/palette";
 
 export default function LoginScreen() {
   const { login } = useSession();
+  const { colors } = usePalette();
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
@@ -125,7 +127,10 @@ export default function LoginScreen() {
 
           {/* Connection troubleshooter — only shown when something goes wrong */}
           {error || probe?.ok === false ? (
-            <View className="gap-3 rounded-2xl border border-hairline bg-raised p-4">
+            <View
+              className="gap-3 rounded-2xl border p-4"
+              style={{ borderColor: colors.hairline, backgroundColor: colors.raised }}
+            >
               <T size={13} weight="700">
                 Cannot reach the RideWing server
               </T>

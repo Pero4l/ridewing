@@ -1,21 +1,21 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 import { Ionicons } from "@expo/vector-icons";
+import { Image } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
-import { Alert, FlatList, Pressable, StyleSheet, View } from "react-native";
+import { Alert, FlatList, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { PostCard, type PostActions } from "@/components/post-card";
 import {
   Avatar,
-  Badge,
-  Button,
   Divider,
   EmptyState,
   ErrorState,
   Screen,
   Spinner,
   T,
+  VerifiedTick,
 } from "@/components/ui";
 import { ApiError, api } from "@/lib/api";
 import { usePalette } from "@/lib/palette";
@@ -42,9 +42,11 @@ export default function PublicProfileScreen() {
   const { user } = useSession();
   const insets = useSafeAreaInsets();
   const { colors } = usePalette();
+  const { width } = useWindowDimensions();
 
   const [profile, setProfile] = useState<Profile | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
+  const [view, setView] = useState<"grid" | "list">("grid");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [following, setFollowing] = useState(false);
@@ -125,155 +127,202 @@ export default function PublicProfileScreen() {
   if (!profile) return <Screen><EmptyState icon="person-outline" title="Rider not found" /></Screen>;
 
   const bike = bikeLabel(profile.bikeInfo ?? {});
+  const cell = (width - 2) / 3;
+  const gridPosts = posts.filter((p) => p.media.length > 0);
+  const gridData = view === "grid" ? gridPosts : [];
 
   return (
     <Screen>
       <FlatList
-        data={posts}
+        data={view === "grid" ? gridData : posts}
         keyExtractor={(item) => item.id}
+        numColumns={view === "grid" ? 3 : 1}
+        key={view}
+        columnWrapperStyle={view === "grid" && gridData.length ? { gap: 1.5 } : undefined}
         contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}
         ListHeaderComponent={
           <View>
-            {/* ── Profile header card ──────────────────────────── */}
-            <View style={[styles.headerCard, { backgroundColor: colors.surface }]}>
-              {/* Top row: avatar + stats */}
-              <View style={styles.topRow}>
-                <View style={[styles.avatarRing, { borderColor: colors.accent }]}>
-                  <Avatar
-                    user={{ username: profile.username, profileImage: profile.profileImage }}
-                    size={80}
-                  />
-                </View>
+            {/* ── Top bar ─────────────────────────────────────── */}
+            <View
+              style={{ paddingTop: insets.top + 8, backgroundColor: colors.surface }}
+              className="flex-row items-center gap-1 px-2 pb-2"
+            >
+              <Pressable
+                onPress={() => router.back()}
+                hitSlop={10}
+                accessibilityLabel="Back"
+                className="h-10 w-10 items-center justify-center active:opacity-60"
+              >
+                <Ionicons name="chevron-back" size={27} color={colors.ink} />
+              </Pressable>
+              <View className="flex-1 flex-row items-center justify-center gap-1.5">
+                <T size={19} weight="800" numberOfLines={1} style={{ letterSpacing: -0.3 }}>
+                  {profile.username}
+                </T>
+                <VerifiedTick size={14} />
+              </View>
+              <View className="h-10 w-10" />
+            </View>
 
-                <View style={styles.statsRow}>
-                  <StatPill value={profile.postCount} label="Posts" />
-                  <StatPill value={profile.followerCount} label="Followers" />
-                  <StatPill value={profile.followingCount} label="Following" />
+            {/* ── Identity ────────────────────────────────────── */}
+            <View style={{ backgroundColor: colors.surface }} className="px-4 pb-3">
+              <View className="flex-row items-center gap-5">
+                <Avatar
+                  user={{ username: profile.username, profileImage: profile.profileImage }}
+                  size={82}
+                />
+                <View className="flex-1 flex-row items-center justify-around">
+                  <Stat value={profile.postCount} label="Posts" />
+                  <Stat value={profile.followerCount} label="Followers" />
+                  <Stat value={profile.followingCount} label="Following" />
                 </View>
               </View>
 
-              {/* Name / username / bio */}
-              <View style={styles.nameBlock}>
-                <View style={styles.nameRow}>
-                  <T size={18} weight="800" style={{ letterSpacing: -0.3 }}>
-                    {profile.displayName}
-                  </T>
-                </View>
-                <T size={13} tone="muted">@{profile.username}</T>
+              <View className="mt-2.5">
+                <T size={14} weight="700">
+                  {profile.displayName}
+                </T>
                 {profile.bio ? (
-                  <T size={14} style={{ marginTop: 5, lineHeight: 20 }}>{profile.bio}</T>
+                  <T size={14} style={{ marginTop: 2, lineHeight: 19 }}>
+                    {profile.bio}
+                  </T>
                 ) : null}
                 {bike ? (
-                  <View style={styles.bikeRow}>
+                  <View className="mt-1 flex-row items-center gap-1">
                     <Ionicons name="bicycle-outline" size={13} color={colors.muted} />
-                    <T size={13} tone="muted">{bike}</T>
+                    <T size={13} tone="muted">
+                      {bike}
+                    </T>
                   </View>
                 ) : null}
               </View>
 
-              {/* Action buttons — only for other riders */}
-              {!profile.isSelf && user ? (
-                <View style={styles.actionRow}>
-                  <Button
-                    label={following ? "Following" : "Follow"}
-                    variant={following ? "secondary" : "primary"}
-                    style={{ flex: 1 }}
-                    loading={busy}
+              {/* Actions */}
+              {profile.isSelf ? (
+                <View className="mt-3 flex-row gap-2">
+                  <Pressable
+                    onPress={() => router.push("/(tabs)/profile")}
+                    className="flex-1 items-center rounded-lg py-2 active:opacity-70"
+                    style={{ backgroundColor: colors.raised }}
+                  >
+                    <T size={14} weight="700">View my profile</T>
+                  </Pressable>
+                </View>
+              ) : user ? (
+                <View className="mt-3 flex-row gap-2">
+                  <Pressable
                     onPress={toggleFollow}
-                  />
-                  <Button
-                    label="Message"
-                    icon="chatbubble-outline"
-                    variant="secondary"
-                    style={{ flex: 1 }}
-                    loading={messaging}
+                    disabled={busy}
+                    accessibilityRole="button"
+                    className="flex-1 items-center rounded-lg py-2 active:opacity-70"
+                    style={{ backgroundColor: following ? colors.raised : colors.accent, opacity: busy ? 0.6 : 1 }}
+                  >
+                    <T size={14} weight="700" color={following ? colors.ink : colors.onAccent}>
+                      {busy ? "…" : following ? "Following" : "Follow"}
+                    </T>
+                  </Pressable>
+                  <Pressable
                     onPress={messageRider}
-                  />
+                    disabled={messaging}
+                    accessibilityRole="button"
+                    className="flex-1 items-center rounded-lg py-2 active:opacity-70"
+                    style={{ backgroundColor: colors.raised, opacity: messaging ? 0.6 : 1 }}
+                  >
+                    <T size={14} weight="700">{messaging ? "…" : "Message"}</T>
+                  </Pressable>
                 </View>
               ) : null}
             </View>
 
             <Divider />
 
-            {/* Posts label */}
-            <View style={[styles.postsLabel, { backgroundColor: colors.surface }]}>
-              <Ionicons name="grid-outline" size={16} color={colors.muted} />
-              <T size={13} weight="700" tone="muted" style={{ letterSpacing: 0.5, textTransform: "uppercase" } as never}>
-                Posts
-              </T>
+            {/* ── View toggle ─────────────────────────────────── */}
+            <View style={{ backgroundColor: colors.surface }} className="flex-row">
+              <Pressable
+                onPress={() => setView("grid")}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: view === "grid" }}
+                className="flex-1 items-center py-2.5 active:opacity-60"
+                style={view === "grid" ? { borderBottomWidth: 1.5, borderBottomColor: colors.ink } : undefined}
+              >
+                <Ionicons name={view === "grid" ? "grid" : "grid-outline"} size={24} color={view === "grid" ? colors.ink : colors.muted} />
+              </Pressable>
+              <Pressable
+                onPress={() => setView("list")}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: view === "list" }}
+                className="flex-1 items-center py-2.5 active:opacity-60"
+                style={view === "list" ? { borderBottomWidth: 1.5, borderBottomColor: colors.ink } : undefined}
+              >
+                <Ionicons name={view === "list" ? "list" : "list-outline"} size={24} color={view === "list" ? colors.ink : colors.muted} />
+              </Pressable>
             </View>
             <Divider />
           </View>
         }
-        renderItem={({ item }) => (
-          <PostCard post={item} actions={actions} onOpenProfile={(u) => router.push(`/profile/${u}`)} />
-        )}
+        renderItem={({ item }) => {
+          if (view === "list") {
+            return <PostCard post={item} actions={actions} onOpenProfile={(u) => router.push(`/profile/${u}`)} />;
+          }
+          const first = item.media[0];
+          if (!first) return null;
+          return (
+            <Pressable onPress={() => router.push(`/post/${item.id}`)} accessibilityLabel="Open post">
+              {first.type === "video" ? (
+                <View style={{ width: cell, height: cell, backgroundColor: "#000" }} className="items-center justify-center">
+                  {first.posterUrl ? (
+                    <Image
+                      source={{ uri: first.posterUrl }}
+                      style={{ width: cell, height: cell, position: "absolute" }}
+                      contentFit="cover"
+                    />
+                  ) : null}
+                  <Ionicons name="play" size={22} color="#fff" />
+                  {item.media.length > 1 ? (
+                    <View style={styles.multiBadge}>
+                      <Ionicons name="copy-outline" size={14} color="#fff" />
+                    </View>
+                  ) : null}
+                </View>
+              ) : (
+                <View>
+                  <Image
+                    source={{ uri: first.posterUrl ?? first.url }}
+                    style={{ width: cell, height: cell, backgroundColor: colors.raised }}
+                    contentFit="cover"
+                    transition={120}
+                  />
+                  {item.media.length > 1 ? (
+                    <View style={styles.multiBadge}>
+                      <Ionicons name="copy-outline" size={14} color="#fff" />
+                    </View>
+                  ) : null}
+                </View>
+              )}
+            </Pressable>
+          );
+        }}
         ListEmptyComponent={
-          <EmptyState icon="newspaper-outline" title="No posts yet" body="This rider hasn't posted anything yet." />
+          <EmptyState icon="camera-outline" title="No posts yet" body="This rider hasn't posted any photos yet." />
         }
       />
     </Screen>
   );
 }
 
-function StatPill({ value, label }: { value: number; label: string }) {
+function Stat({ value, label }: { value: number; label: string }) {
   return (
-    <View style={styles.statPill}>
-      <T size={20} weight="800">{value}</T>
+    <View className="items-center gap-0.5 px-1">
+      <T size={18} weight="800">{String(value)}</T>
       <T size={12} tone="muted">{label}</T>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  headerCard: {
-    padding: 16,
-    gap: 12,
-  },
-  topRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 20,
-    marginTop: 4,
-  },
-  avatarRing: {
-    borderWidth: 2.5,
-    borderRadius: 46,
-    padding: 3,
-  },
-  statsRow: {
-    flex: 1,
-    flexDirection: "row",
-    justifyContent: "space-around",
-  },
-  statPill: {
-    alignItems: "center",
-    gap: 1,
-  },
-  nameBlock: {
-    gap: 2,
-  },
-  nameRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-  },
-  bikeRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    marginTop: 3,
-  },
-  actionRow: {
-    flexDirection: "row",
-    gap: 10,
-    marginTop: 2,
-  },
-  postsLabel: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    paddingVertical: 10,
+  multiBadge: {
+    position: "absolute",
+    top: 6,
+    right: 6,
   },
 });

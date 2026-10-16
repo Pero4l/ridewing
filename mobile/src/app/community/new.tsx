@@ -29,7 +29,7 @@ export default function NewCommunityScreen() {
       });
       router.replace(`/community/${res.community.slug}`);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not create the group.");
+        setError(err instanceof ApiError ? err.message : "Could not create the community.");
       setBusy(false);
     }
   }
@@ -38,7 +38,7 @@ export default function NewCommunityScreen() {
     <ScrollView contentContainerStyle={{ padding: 16, gap: 16 }}>
       <Card className="gap-3.5">
         <Field
-          label="Group name"
+          label="Community name"
           value={name}
           onChangeText={setName}
           placeholder="Midnight Riders"
@@ -85,7 +85,7 @@ export default function NewCommunityScreen() {
         <ErrorBanner message={error} />
 
         <Button
-          label="Create group"
+          label="Create community"
           onPress={onCreate}
           loading={busy}
           disabled={name.trim().length < 3}

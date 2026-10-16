@@ -41,7 +41,7 @@ export function RiderPicker({
   onClose: () => void;
   onPick: (username: string) => void;
 }) {
-  const { colors } = usePalette();
+  const { colors, dark } = usePalette();
   const [query, setQuery] = useState("");
   const [riders, setRiders] = useState<PublicUser[]>([]);
   const [loading, setLoading] = useState(false);
@@ -93,10 +93,13 @@ export function RiderPicker({
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View className="flex-1 justify-end bg-black/50">
         <View
-          className="max-h-[85%] rounded-t-xl bg-canvas pt-3"
-          style={{ paddingBottom: 28 }}
+          className="max-h-[85%] rounded-t-xl pt-3"
+          style={{ paddingBottom: 28, backgroundColor: colors.canvas }}
         >
-          <View className="mb-2 h-1 w-10 self-center rounded-full bg-hairline" />
+          <View
+            className="mb-2 h-1 w-10 self-center rounded-full"
+            style={{ backgroundColor: colors.hairline }}
+          />
 
           <View className="gap-1 px-4 pb-3">
             <T size={18} weight="700">
@@ -111,8 +114,11 @@ export function RiderPicker({
 
           <View className="px-4 pb-3">
             <View
-              className="flex-row items-center gap-2 rounded-md bg-raised px-3 py-2.5"
-              style={styles.hairline}
+              className="flex-row items-center gap-2 rounded-md px-3 py-2.5"
+              style={[
+                styles.hairline,
+                { backgroundColor: colors.raised, borderColor: colors.hairline },
+              ]}
             >
               <Ionicons name="search" size={16} color={colors.faint} />
               <TextInput
@@ -120,6 +126,7 @@ export function RiderPicker({
                 onChangeText={setQuery}
                 placeholder={friendsOnly ? "Search the riders you follow" : "Search riders"}
                 placeholderTextColor={colors.faint}
+                keyboardAppearance={dark ? "dark" : "light"}
                 autoCapitalize="none"
                 autoCorrect={false}
                 style={{ flex: 1, fontSize: 15, color: colors.ink }}
@@ -147,7 +154,11 @@ export function RiderPicker({
                   accessibilityLabel={`Choose ${rider.displayName}`}
                   style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
                 >
-                  <Row gap={12} className="border-b border-hairline px-4 py-3">
+                  <Row
+                    gap={12}
+                    className="px-4 py-3"
+                    style={{ borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.hairline }}
+                  >
                     <Avatar user={rider} size={40} />
                     <View className="flex-1">
                       <T size={15} weight="600" numberOfLines={1}>

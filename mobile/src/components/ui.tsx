@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { usePalette } from "@/lib/palette";
+import { usePalette, type Palette } from "@/lib/palette";
 import type { PublicUser } from "@/lib/types";
 
 /*
@@ -30,21 +30,43 @@ import type { PublicUser } from "@/lib/types";
 
 type Tone = "accent" | "danger" | "success" | "warning" | "muted";
 
-const toneText: Record<Tone, string> = {
-  accent: "text-accent",
-  danger: "text-danger",
-  success: "text-success",
-  warning: "text-warning",
-  muted: "text-muted",
-};
+/*
+ * Theme colors come from `usePalette()` (plain hex that follows the live
+ * color scheme) — never from Tailwind `text-*` / `bg-*` token classes. Those
+ * classes resolve CSS variables that do not re-evaluate on native, so every
+ * class-based color in this file used to freeze in light mode while the rest
+ * of the app went dark. Every primitive below pins its RN color explicitly.
+ */
 
-const toneSurface: Record<Tone, string> = {
-  accent: "bg-accentSoft",
-  danger: "bg-dangerSoft",
-  success: "bg-accentSoft",
-  warning: "bg-accentSoft",
-  muted: "bg-raised",
-};
+function toneColor(tone: Tone, colors: Palette): string {
+  switch (tone) {
+    case "accent":
+      return colors.accent;
+    case "danger":
+      return colors.danger;
+    case "success":
+      return colors.success;
+    case "warning":
+      return colors.warning;
+    case "muted":
+      return colors.muted;
+  }
+}
+
+function toneBg(tone: Tone, colors: Palette): string {
+  switch (tone) {
+    case "accent":
+      return colors.accentSoft;
+    case "danger":
+      return colors.dangerSoft;
+    case "success":
+      return colors.accentSoft;
+    case "warning":
+      return colors.accentSoft;
+    case "muted":
+      return colors.raised;
+  }
+}
 
 // ── text ────────────────────────────────────────────────────────────────────
 
@@ -60,6 +82,25 @@ type TProps = {
   style?: TextStyle | TextStyle[];
 };
 
+// Numeric `font-400`-style classes do not exist in Tailwind — map to the real
+// utilities AND set the RN `fontWeight` explicitly, so weight never depends
+// on whether the compiler recognised the class.
+const weightClass: Record<NonNullable<TProps["weight"]>, string> = {
+  "400": "font-normal",
+  "500": "font-medium",
+  "600": "font-semibold",
+  "700": "font-bold",
+  "800": "font-extrabold",
+};
+
+const weightStyle: Record<NonNullable<TProps["weight"]>, TextStyle["fontWeight"]> = {
+  "400": "400",
+  "500": "500",
+  "600": "600",
+  "700": "700",
+  "800": "800",
+};
+
 export function T({
   children,
   size = 13,
@@ -71,13 +112,18 @@ export function T({
   color,
   style,
 }: TProps) {
-  const weightClass = `font-${weight}`;
-  const colorClass = tone ? toneText[tone] : muted ? "text-muted" : "text-ink";
+  const { colors } = usePalette();
+  // The RN color is always pinned from the live palette: Tailwind color
+  // classes do not re-evaluate on native, so the class is decorative only.
+  const resolved = color ?? (tone ? toneColor(tone, colors) : muted ? colors.muted : colors.ink);
   return (
     <Text
       numberOfLines={numberOfLines}
-      className={`${colorClass} ${weightClass} ${className}`}
-      style={[{ fontSize: size, lineHeight: Math.round(size * 1.45) }, color ? { color } : null, style]}
+      className={`${weightClass[weight]} ${className}`}
+      style={[
+        { fontSize: size, lineHeight: Math.round(size * 1.45), fontWeight: weightStyle[weight], color: resolved },
+        style,
+      ]}
     >
       {children}
     </Text>
@@ -95,10 +141,14 @@ export function Screen({
   className?: string;
   style?: StyleProp<ViewStyle>;
 }) {
+  const { colors } = usePalette();
   // `overflow-hidden` is the correct NativeWind class; `overflow-auto` does not
   // exist in React Native's layout engine and is silently ignored.
   return (
-    <View className={`flex-1 bg-canvas overflow-hidden ${className}`} style={style}>
+    <View
+      className={`flex-1 overflow-hidden ${className}`}
+      style={[{ backgroundColor: colors.canvas }, style]}
+    >
       {children}
     </View>
   );
@@ -119,12 +169,19 @@ export function Card({
   padded?: boolean;
   style?: StyleProp<ViewStyle>;
 }) {
+  const { colors } = usePalette();
   return (
     <View
-      className={`rounded-2xl border border-hairline bg-surface ${
-        padded ? "p-4" : ""
-      } ${className}`}
-      style={[styles.cardShadow, style]}
+      className={`rounded-2xl ${padded ? "p-4" : ""} ${className}`}
+      style={[
+        styles.cardShadow,
+        {
+          backgroundColor: colors.surface,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: colors.hairline,
+        },
+        style,
+      ]}
     >
       {children}
     </View>
@@ -132,12 +189,13 @@ export function Card({
 }
 
 export function Divider({ className = "" }: { className?: string }) {
+  const { colors } = usePalette();
   // Use a pure View with explicit height rather than a border-based approach,
   // which can produce 2px lines due to subpixel rounding.
   return (
     <View
-      className={`bg-hairline ${className}`}
-      style={{ height: StyleSheet.hairlineWidth }}
+      className={className}
+      style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.hairline }}
     />
   );
 }
@@ -173,7 +231,7 @@ export function SectionTitle({
 }) {
   return (
     <View className={`flex-row items-end justify-between px-4 ${className}`}>
-      <T size={11} weight="700" className="uppercase tracking-wide text-muted" style={{ letterSpacing: 0.6 }}>
+      <T size={11} weight="700" muted className="uppercase tracking-wide" style={{ letterSpacing: 0.6 }}>
         {children}
       </T>
       {action}
@@ -243,22 +301,20 @@ export function Button({
   const { colors } = usePalette();
   const inactive = disabled || loading;
 
-  const surface =
+  const bg =
     variant === "primary"
-      ? "bg-accent"
+      ? colors.accent
       : variant === "danger"
-        ? "bg-danger"
+        ? colors.danger
         : variant === "secondary"
-          ? "bg-surface border border-hairline"
-          : "bg-transparent";
+          ? colors.surface
+          : "transparent";
 
-  const textColorClass = variant === "primary" || variant === "danger" ? "text-onAccent" : "text-ink";
+  const labelColor =
+    variant === "primary" || variant === "danger" ? colors.onAccent : colors.ink;
   const padding = size === "sm" ? "px-3.5 py-2" : "px-5 py-3.5";
 
-  const iconColor =
-    variant === "primary" || variant === "danger"
-      ? colors.onAccent
-      : colors.ink;
+  const iconColor = labelColor;
 
   return (
     <Pressable
@@ -267,11 +323,17 @@ export function Button({
       accessibilityLabel={label}
       disabled={inactive}
       onPress={onPress}
-      className={`flex-row items-center justify-center rounded-2xl ${padding} ${surface} ${
+      className={`flex-row items-center justify-center rounded-2xl ${padding} ${
         fullWidth ? "w-full" : ""
       } active:opacity-85 ${inactive ? "opacity-50" : ""} ${className}`}
       style={[
-        variant === "secondary" ? { borderWidth: StyleSheet.hairlineWidth } : null,
+        variant === "secondary"
+          ? {
+              backgroundColor: bg,
+              borderWidth: StyleSheet.hairlineWidth,
+              borderColor: colors.hairline,
+            }
+          : { backgroundColor: bg },
         variant === "primary" && !inactive
           ? {
               shadowColor: "#10B981",
@@ -285,10 +347,7 @@ export function Button({
       ]}
     >
       {loading ? (
-        <ActivityIndicator
-          size="small"
-          color={variant === "primary" || variant === "danger" ? colors.onAccent : colors.ink}
-        />
+        <ActivityIndicator size="small" color={labelColor} />
       ) : (
         <>
           {icon ? (
@@ -298,7 +357,7 @@ export function Button({
               color={iconColor}
             />
           ) : null}
-          <T size={size === "sm" ? 13 : 15} weight="700" className={textColorClass}>
+          <T size={size === "sm" ? 13 : 15} weight="700" color={labelColor}>
             {label}
           </T>
         </>
@@ -343,10 +402,8 @@ export function IconButton({
       accessibilityState={{}}
       onPress={onPress}
       hitSlop={8}
-      className={`items-center justify-center rounded-full active:opacity-75 ${
-        filled ? "bg-accent" : "bg-raised"
-      }`}
-      style={{ width: size, height: size }}
+      className="items-center justify-center rounded-full active:opacity-75"
+      style={[{ width: size, height: size, backgroundColor: filled ? colors.accent : colors.raised }]}
     >
       <Ionicons name={icon} size={Math.round(size * 0.46)} color={iconColor} />
     </Pressable>
@@ -360,7 +417,7 @@ type FieldProps = {
 } & Omit<React.ComponentProps<typeof TextInput>, "className">;
 
 export function Field({ label, error, hint, ...props }: FieldProps) {
-  const { colors } = usePalette();
+  const { colors, dark } = usePalette();
 
   return (
     <View className="gap-1.5">
@@ -369,11 +426,20 @@ export function Field({ label, error, hint, ...props }: FieldProps) {
       </T>
       <TextInput
         placeholderTextColor={props.placeholderTextColor ?? colors.faint}
+        keyboardAppearance={dark ? "dark" : "light"}
+        selectionColor={colors.accent}
         {...props}
-        className={`rounded-2xl border bg-surface px-4 py-3.5 text-[15px] text-ink ${
-          error ? "border-danger" : "border-hairline"
-        }`}
-        style={[{ borderWidth: StyleSheet.hairlineWidth, textAlignVertical: "top" }, props.style as TextStyle | undefined]}
+        className="rounded-2xl border px-4 py-3.5 text-[15px]"
+        style={[
+          {
+            borderWidth: StyleSheet.hairlineWidth,
+            borderColor: error ? colors.danger : colors.hairline,
+            backgroundColor: colors.surface,
+            color: colors.ink,
+            textAlignVertical: "top",
+          },
+          props.style as TextStyle | undefined,
+        ]}
       />
       {error ? (
         <T size={12} tone="danger">
@@ -399,11 +465,15 @@ export function SearchField({
   onSubmit?: () => void;
   placeholder?: string;
 }) {
-  const { colors } = usePalette();
+  const { colors, dark } = usePalette();
   return (
     <View
-      className="flex-row items-center gap-2 rounded-2xl border border-hairline bg-raised px-3.5 py-2.5"
-      style={{ borderWidth: StyleSheet.hairlineWidth }}
+      className="flex-row items-center gap-2 rounded-2xl px-3.5 py-2.5"
+      style={{
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.hairline,
+        backgroundColor: colors.raised,
+      }}
     >
       <Ionicons name="search" size={16} color={colors.faint} />
       <TextInput
@@ -413,7 +483,10 @@ export function SearchField({
         returnKeyType="search"
         placeholder={placeholder}
         placeholderTextColor={colors.faint}
-        className="flex-1 py-0.5 text-[15px] text-ink"
+        keyboardAppearance={dark ? "dark" : "light"}
+        selectionColor={colors.accent}
+        className="flex-1 py-0.5 text-[15px]"
+        style={{ color: colors.ink }}
         accessibilityLabel={placeholder}
       />
       {value.length > 0 ? (
@@ -442,10 +515,12 @@ export function Chip({
       onPress={onPress}
       accessibilityRole="button"
       accessibilityState={{ selected: !!selected }}
-      className={`flex-row items-center gap-1.5 rounded-full border px-3.5 py-2 active:opacity-75 ${
-        selected ? "border-accent bg-accentSoft" : "border-hairline bg-surface"
-      }`}
-      style={{ borderWidth: StyleSheet.hairlineWidth }}
+      className="flex-row items-center gap-1.5 rounded-full px-3.5 py-2 active:opacity-75"
+      style={{
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: selected ? colors.accent : colors.hairline,
+        backgroundColor: selected ? colors.accentSoft : colors.surface,
+      }}
     >
       {icon ? (
         <Ionicons
@@ -495,12 +570,15 @@ export function ListRow({
   const body = (
     <View style={{ gap: 12 }} className="flex-row items-center py-3.5 px-4">
       {icon ? (
-        <View className="h-9 w-9 items-center justify-center rounded-xl bg-raised">
+        <View
+          className="h-9 w-9 items-center justify-center rounded-xl"
+          style={{ backgroundColor: colors.raised }}
+        >
           <Ionicons name={icon} size={18} color={iconColor} />
         </View>
       ) : null}
       <View className="min-w-0 flex-1">
-        <T size={15} weight="600" className={danger ? "text-danger" : undefined}>
+        <T size={15} weight="600" tone={danger ? "danger" : undefined}>
           {title}
         </T>
         {subtitle ? (
@@ -522,7 +600,7 @@ export function ListRow({
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={title}
-      className="active:bg-raised"
+      className="active:opacity-70"
       android_ripple={{ color: "rgba(0,0,0,0.05)" }}
     >
       {body}
@@ -566,8 +644,12 @@ export function Banner({
 
   return (
     <View
-      className={`flex-row items-center gap-3 rounded-2xl px-3.5 py-3 ${toneSurface[tone]}`}
-      style={{ borderWidth: StyleSheet.hairlineWidth, borderColor: "transparent" }}
+      className="flex-row items-center gap-3 rounded-2xl px-3.5 py-3"
+      style={{
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: "transparent",
+        backgroundColor: toneBg(tone, colors),
+      }}
     >
       <Ionicons name="information-circle" size={17} color={iconColor} />
       <T size={13} className="flex-1">
@@ -596,9 +678,9 @@ export function FAB({
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={label}
-      className="absolute right-4 h-14 w-14 items-center justify-center rounded-full bg-accent active:opacity-85"
+      className="absolute right-4 h-14 w-14 items-center justify-center rounded-full active:opacity-85"
       style={[
-        { bottom: insets.bottom + offset },
+        { bottom: insets.bottom + offset, backgroundColor: colors.accent },
         {
           shadowColor: "#10B981",
           shadowOpacity: 0.4,
@@ -632,6 +714,7 @@ export function Avatar({
   user: Pick<PublicUser, "profileImage" | "username"> | null;
   size?: number;
 }) {
+  const { colors: avatarColors } = usePalette();
   if (user?.profileImage) {
     return (
       <Image
@@ -648,8 +731,8 @@ export function Avatar({
 
   return (
     <View
-      className="items-center justify-center rounded-full bg-raised"
-      style={{ width: size, height: size }}
+      className="items-center justify-center rounded-full"
+      style={{ width: size, height: size, backgroundColor: avatarColors.raised }}
     >
       {/* Explicit layout so the text does not inherit the parent View's
           dimensions and sits centred. `lineHeight` must match `fontSize` to
@@ -659,13 +742,12 @@ export function Avatar({
           fontSize,
           lineHeight: fontSize,
           fontWeight: "700",
-          color: undefined,
+          color: avatarColors.accent,
           includeFontPadding: false,
           // textAlignVertical centres Android; the surrounding flex does iOS.
           textAlignVertical: "center",
           textAlign: "center",
         }}
-        className="text-accent"
       >
         {initial}
       </Text>
@@ -674,8 +756,12 @@ export function Avatar({
 }
 
 export function Badge({ label, tone = "accent" }: { label: string; tone?: Tone }) {
+  const { colors } = usePalette();
   return (
-    <View className={`self-start rounded-full px-2.5 py-0.5 ${toneSurface[tone]}`}>
+    <View
+      className="self-start rounded-full px-2.5 py-0.5"
+      style={{ backgroundColor: toneBg(tone, colors) }}
+    >
       <T size={10} weight="700" tone={tone} className="uppercase" style={{ letterSpacing: 0.5 }}>
         {label}
       </T>
@@ -741,11 +827,12 @@ export function Skeleton({
   rounded?: number;
   className?: string;
 }) {
+  const { colors } = usePalette();
   return (
     <View
-      className={`animate-pulse bg-raised ${className}`}
+      className={`animate-pulse ${className}`}
       style={[
-        { borderRadius: rounded },
+        { borderRadius: rounded, backgroundColor: colors.raised },
         width !== undefined ? { width: width as never } : null,
         height !== undefined ? { height: height as never } : null,
       ]}
@@ -808,7 +895,10 @@ export function EmptyState({
   const { colors } = usePalette();
   return (
     <View className="items-center gap-2 px-6 py-12">
-      <View className="mb-2 h-16 w-16 items-center justify-center rounded-3xl bg-raised">
+      <View
+        className="mb-2 h-16 w-16 items-center justify-center rounded-3xl"
+        style={{ backgroundColor: colors.raised }}
+      >
         <Ionicons name={icon} size={28} color={colors.accent} />
       </View>
       <T size={16} weight="700" className="text-center">
