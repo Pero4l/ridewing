@@ -318,7 +318,6 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingHorizontal: 12,
     paddingTop: 10,
-    paddingBottom: insets.bottom + 10,
     justifyContent: "space-between",
   },
   input: {
@@ -341,6 +340,5 @@ const styles = StyleSheet.create({
   },
   keyboardView: {
     flex: 1,
-    backgroundColor: colors.canvas,
   },
 });

@@ -8,14 +8,14 @@ import { Avatar } from "@/components/avatar";
 
 export default function AdminPage() {
   const [section, setSection] = useState("stats");
-  const [stats, setStats] = useState(null);
-  const [users, setUsers] = useState(null);
-  const [activity, setActivity] = useState(null);
+  const [stats, setStats] = useState<Record<string, number | string> | null>(null);
+  const [users, setUsers] = useState<{ id: string; displayName: string; username: string; profileImage: string | null; role?: string; suspendedAt?: string }[] | null>(null);
+  const [activity, setActivity] = useState<{ id: string; action: string; createdAt: string; metadata?: string }[] | null>(null);
 
   useEffect(() => {
-    api.get("/api/admin/stats").then((res) => setStats(res)).catch(() => {});
-    api.get("/api/admin/users").then((res) => setUsers(res)).catch(() => {});
-    api.get("/api/admin/activity").then((res) => setActivity(res)).catch(() => {});
+    api.get("/api/admin/stats").then((res) => setStats(res as Record<string, number | string>)).catch(() => {});
+    api.get("/api/admin/users").then((res) => setUsers(res as { id: string; displayName: string; username: string; profileImage: string | null; role?: string; suspendedAt?: string }[])).catch(() => {});
+    api.get("/api/admin/activity").then((res) => setActivity(res as { id: string; action: string; createdAt: string; metadata?: string }[])).catch(() => {});
   }, []);
 
   return (
