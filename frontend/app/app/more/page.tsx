@@ -1,11 +1,25 @@
 "use client";
 
 import Link from "next/link";
-import { CogIcon, MicIcon, SupportIcon, VideoIcon } from "@/components/icons";
+import { useSession } from "@/lib/auth";
+import { CogIcon, LogOutIcon, MicIcon, SupportIcon, VideoIcon } from "@/components/icons";
 import { BrandMark, BrandName, GrandcrestCredit } from "@/components/brand";
-import { Card, PageHeader, SectionTitle } from "@/components/ui";
+import { Button, Card, PageHeader, SectionTitle } from "@/components/ui";
+import { useToast } from "@/components/toast";
 
 export default function MorePage() {
+  const { logout } = useSession();
+  const toast = useToast();
+
+  async function handleLogout() {
+    try {
+      await logout();
+      toast.success("Signed out");
+    } catch {
+      toast.error("Could not sign out");
+    }
+  }
+
   return (
     <div>
       <PageHeader>
@@ -68,6 +82,14 @@ export default function MorePage() {
             </Card>
           </Link>
         </div>
+      </div>
+
+      <div className="border-t border-zinc-100 px-4 py-4 dark:border-zinc-800">
+        <SectionTitle>Account</SectionTitle>
+        <Button full variant="danger" onClick={handleLogout} className="mt-2">
+          <LogOutIcon size={16} className="mr-2" />
+          Sign out
+        </Button>
       </div>
 
       {/*

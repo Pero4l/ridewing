@@ -9,7 +9,7 @@ import { useToast } from "@/components/toast";
 import { RideRow } from "@/components/rows";
 import { Button, Card, EmptyState, Input, PageHeader, SectionTitle } from "@/components/ui";
 import { InlineSpinner } from "@/components/spinner";
-import { PlusIcon, RidesIcon } from "@/components/icons";
+import { PlusIcon, RidesIcon, ShieldIcon } from "@/components/icons";
 import type { Ride } from "@/lib/types";
 
 export default function RidesPage() {
@@ -64,7 +64,15 @@ export default function RidesPage() {
         </form>
       </Card>
 
-      <SectionTitle>Rides you can join</SectionTitle>
+      <SectionTitle>
+        <div className="flex items-center gap-2">
+          <ShieldIcon size={14} className="text-zinc-400" />
+          <span>Your active rides</span>
+        </div>
+      </SectionTitle>
+      <p className="mx-4 mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+        Rides are private — only riders with the invite code can join. Share the code with your crew.
+      </p>
       {rides.loading ? (
         <div className="grid place-items-center py-14">
           <InlineSpinner />
@@ -80,8 +88,8 @@ export default function RidesPage() {
       ) : (
         <EmptyState
           icon={<RidesIcon size={32} />}
-          title="Nothing running right now"
-          description="Start a ride or join with an invite code from a rider you follow."
+          title="No active rides"
+          description="Start a ride and share the invite code with your crew, or join with a code someone gave you."
           action={
             <Link href="/app/rides/new">
               <Button size="sm">Start a ride</Button>

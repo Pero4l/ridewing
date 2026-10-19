@@ -31,6 +31,7 @@ function VerifyInner() {
   const [verify, setVerify] = useState<VerifyStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [errorSent, setErrorSent] = useState(false);
+  const [code, setCode] = useState("");
   const ranRef = useRef(false);
 
   useEffect(() => {
@@ -55,7 +56,7 @@ function VerifyInner() {
 
       if (!cancelled) setVerify("working");
       try {
-        await api.post("/api/auth/verify-email", { token });
+        await api.post("/api/auth/verify-email", { code: token });
         if (!cancelled) await refreshUser();
         if (!cancelled) setVerify("verified");
       } catch (err) {
@@ -82,6 +83,21 @@ function VerifyInner() {
       setVerify("idle");
     }
   }, []);
+
+  const handleSubmit = useCallback(async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (code.length !== 6) return;
+    setError(null);
+    setVerify("working");
+    try {
+      await api.post("/api/auth/verify-email", { code });
+      await refreshUser();
+      setVerify("verified");
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not verify. Check the code and try again.");
+      setVerify("failed");
+    }
+  }, [code, refreshUser]);
 
   return (
     <AuthShell>
@@ -116,19 +132,59 @@ function VerifyInner() {
               {error}
             </p>
             <Button full className="mt-4" onClick={() => void sendNewCode()}>
-              Email me a new link
+              Email me a new code
             </Button>
           </div>
         )}
 
         {verify === "idle" && (
-          <div className="text-center">
-            <p className="mt-1 mb-4 text-sm text-zinc-500 dark:text-zinc-400">
+          <div className="space-y-4">
+            <p className="mt-1 mb-4 text-sm text-zinc-500 dark:text-zinc-400 text-center">
               No verification link in the address bar. Request a fresh one below.
             </p>
             <Button full onClick={() => void sendNewCode()}>
               {errorSent ? "Sent — check your inbox" : "Send verification email"}
             </Button>
+            <div className="pt-4 border-t border-zinc-200 dark:border-zinc-800">
+              <p className="mb-3 text-center text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                Or enter a 6-digit code from your email
+              </p>
+              <form onSubmit={handleSubmit} className="space-y-3">
+                <div className="flex items-center justify-center gap-2">
+                  {[...Array(6)].map((_, i) => (
+                    <input
+                      key={i}
+                      type="text"
+                      maxLength={1}
+                      value={code[i] || ""}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/\D/g, "");
+                        if (val) {
+                          setCode((prev) => prev.slice(0, i) + val + prev.slice(i + 1));
+                          // Auto-focus next input
+                          const nextInput = e.currentTarget.parentElement?.querySelector(`input[data-index="${i + 1}"]`) as HTMLInputElement | null;
+                          nextInput?.focus();
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Backspace" && !code[i] && i > 0) {
+                          const prevInput = e.currentTarget.parentElement?.querySelector(`input[data-index="${i - 1}"]`) as HTMLInputElement | null;
+                          prevInput?.focus();
+                        }
+                      }}
+                      data-index={i}
+                      className="h-12 w-10 text-center text-xl font-bold rounded-lg border border-zinc-300 bg-white focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      autoFocus={i === 0}
+                    />
+                  ))}
+                </div>
+                <Button full type="submit" disabled={code.length !== 6}>
+                  Verify
+                </Button>
+              </form>
+            </div>
           </div>
         )}
       </VerifyCard>
@@ -153,7 +209,7 @@ function VerifyCard({ children, status, onSignOut }: { children: React.ReactNode
         )}
       </div>
       <p className="mt-4 flex items-center justify-center gap-1 text-center text-xs text-zinc-400 dark:text-zinc-500">
-        <CheckIcon size={12} /> Emails are sent from RideWing and expire within 24 hours.
+        <CheckIcon size={12} /> Codes are sent from RideWing and expire within 10 minutes.
       </p>
       {onSignOut && (
         <p className="mt-2 text-center text-xs text-zinc-400 dark:text-zinc-500">

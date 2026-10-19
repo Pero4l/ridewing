@@ -2,6 +2,7 @@ import { createContext, use, useCallback, useEffect, useMemo, useState, type Rea
 
 import {
   ApiError,
+  api,
   clearSession,
   hydrateSession,
   onSession,
@@ -19,7 +20,7 @@ import type { Me } from "./types";
  * until the stored token has been checked, instead of flashing the sign-in screen
  * at an already-authenticated rider.
  */
-export type SessionStatus = "loading" | "authed" | "guest";
+export type SessionStatus = "loading" | "authed" | "guest" | "verify-email";
 
 type SessionContextValue = {
   status: SessionStatus;
@@ -58,7 +59,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       // A network failure is not a sign-out — `refreshSession` only reports
       // failure of the server's refusal, so reaching here without a session
       // means the rider genuinely has to sign in.
-      setStatus(ok ? "authed" : "guest");
+      if (ok) {
+        // Check if email is verified
+        const me = await api.get<{ user: Me }>("/api/auth/me");
+        setUser(me.user);
+        if (me.user.email && !me.user.emailVerifiedAt) {
+          setStatus("verify-email");
+        } else {
+          setStatus("authed");
+        }
+      } else {
+        setStatus("guest");
+      }
     })();
 
     return () => {
@@ -71,8 +83,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     () =>
       onSession((session) => {
         setUser(session?.user ?? null);
-        setStatus(session ? "authed" : "guest");
-        if (!session) clearSession();
+        if (session) {
+          if (session.user.email && !session.user.emailVerifiedAt) {
+            setStatus("verify-email");
+          } else {
+            setStatus("authed");
+          }
+        } else {
+          setStatus("guest");
+          clearSession();
+        }
       }),
     [],
   );
@@ -90,8 +110,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const refreshUser = useCallback(async () => {
-    const me = await import("./api").then((m) => m.api.get<{ user: Me }>("/api/auth/me"));
+    const me = await api.get<{ user: Me }>("/api/auth/me");
     setUser(me.user);
+    if (me.user.email && !me.user.emailVerifiedAt) {
+      setStatus("verify-email");
+    } else {
+      setStatus("authed");
+    }
   }, []);
 
   const value = useMemo<SessionContextValue>(

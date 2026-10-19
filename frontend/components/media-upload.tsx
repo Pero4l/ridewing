@@ -62,6 +62,11 @@ export function ImageUploadField({ label, value, onChange, hint, aspect = "squar
             {progress !== null ? <SpinnerIcon size={15} className="animate-spin" /> : <UploadIcon size={15} />}
             {progress !== null ? `Uploading ${progress}%` : value ? "Change" : "Upload"}
           </button>
+          {progress !== null && (
+            <div className="h-2 w-full bg-zinc-200 rounded-full overflow-hidden dark:bg-zinc-700">
+              <div className="h-full bg-emerald-500 transition-all duration-300" style={{ width: `${progress}%` }} />
+            </div>
+          )}
           {value && (
             <button
               type="button"
@@ -121,6 +126,7 @@ export function MediaPicker({
   const imageRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
 
   const imageCount = value.filter((m) => m.kind === "image").length;
   const hasVideo = value.some((m) => m.kind === "video");
@@ -144,9 +150,11 @@ export function MediaPicker({
         onError?.(`${file.name} skipped — larger than ${(spec.maxBytes / (1024 * 1024)).toFixed(0)} MB.`);
         continue;
       }
+      const uploadKey = `${file.name}-${Date.now()}`;
       setUploading(true);
+      setUploadProgress((prev) => ({ ...prev, [uploadKey]: 0 }));
       try {
-        const media = await uploadFile(kind, file);
+        const media = await uploadFile(kind, file, (p) => setUploadProgress((prev) => ({ ...prev, [uploadKey]: p })));
         next.push({
           mediaId: media.url,
           kind,
@@ -155,8 +163,18 @@ export function MediaPicker({
           height: media.height,
           posterUrl: media.posterUrl,
         });
+        setUploadProgress((prev) => {
+          const copy = { ...prev };
+          delete copy[uploadKey];
+          return copy;
+        });
       } catch (uploadError) {
         onError?.(uploadError instanceof Error ? uploadError.message : "Upload failed");
+        setUploadProgress((prev) => {
+          const copy = { ...prev };
+          delete copy[uploadKey];
+          return copy;
+        });
       } finally {
         setUploading(false);
       }
@@ -174,6 +192,15 @@ export function MediaPicker({
 
   return (
     <div className="space-y-2">
+      {Object.keys(uploadProgress).length > 0 && (
+        <div className="space-y-1">
+          {Object.entries(uploadProgress).map(([key, percent]) => (
+            <div key={key} className="h-2 bg-zinc-200 rounded-full overflow-hidden dark:bg-zinc-700">
+              <div className="h-full bg-emerald-500 transition-all duration-300" style={{ width: `${percent}%` }} />
+            </div>
+          ))}
+        </div>
+      )}
       {value.length > 0 && (
         <div className="grid grid-cols-3 gap-2">
           {value.map((entry) => (

@@ -38,6 +38,7 @@ function RootNavigator() {
     { name: "index", options: { headerShown: false } },
     { name: "login", options: { headerShown: false } },
     { name: "register", options: { headerShown: false } },
+    { name: "verify-email", options: { headerShown: false } },
     { name: "forgot-password", options: { title: "Reset password" } },
     { name: "reset-password", options: { title: "New password" } },
   ];
@@ -68,8 +69,10 @@ function RootNavigator() {
     status === "loading"
       ? [{ name: "index", options: { headerShown: false } }]
       : status === "guest"
-        ? guestScreens
-        : authedScreens;
+      ? guestScreens
+      : status === "verify-email"
+      ? [{ name: "verify-email", options: { headerShown: false } }]
+      : authedScreens;
 
   return (
     <>
