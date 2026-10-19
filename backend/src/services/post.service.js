@@ -436,7 +436,7 @@ async function addComment(postId, userId, rawContent, parentId) {
     // comment shows a real name immediately instead of a "Someone" placeholder.
     const author = await User.findByPk(userId, { transaction });
 
-    afterCommit(transaction, () => {
+    afterCommit(transaction, async () => {
       notificationService.create({
         userId: post.userId,
         actorId: userId,
