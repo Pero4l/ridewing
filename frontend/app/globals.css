@@ -21,12 +21,15 @@
   color-scheme: dark;
 }
 
-html,
-body {
+html {
   height: 100%;
+  overflow-x: hidden;
 }
 
 body {
+  min-height: 100%;
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
   background:
     radial-gradient(800px 300px at 50% -10%, rgb(16 185 129 / 0.06), transparent 70%),
     linear-gradient(180deg, #f7f8fa 0%, #eef1f4 100%);
@@ -36,6 +39,7 @@ body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   -webkit-tap-highlight-color: transparent;
+  -webkit-overflow-scrolling: touch;
 }
 
 .dark body {
@@ -53,26 +57,6 @@ textarea {
 
 ::selection {
   background: rgb(16 185 129 / 0.22);
-}
-
-/* Mobile-safe tap targets and no-ugly-scrollbar chrome */
-input,
-textarea,
-select,
-button {
-  font: inherit;
-}
-
-/* Subtle, brand-tinted scrollbar on platforms that support it */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: rgb(212 212 216 / 0.8) transparent;
-}
-
-@media (pointer: coarse) {
-  * {
-    overscroll-behavior-y: none;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
