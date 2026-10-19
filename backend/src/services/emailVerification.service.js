@@ -1,12 +1,10 @@
 'use strict';
 
 /**
- * Email verification.
+ * Email verification with OTP (One-Time Password).
  *
- * Raw tokens are random 32-byte values, hashed with SHA-256 before they touch
- * the database. The hash is in the database; the plaintext travels only in the
- * verification link. A rider may request a new token before the old one expires:
- * requesting replaces the outstanding token, so links go stale in a bounded way.
+ * A 6-digit OTP code is generated, hashed with SHA-256, and stored in the database.
+ * The plaintext OTP is sent via email. The user enters the OTP in the app to verify.
  */
 
 const crypto = require('crypto');
@@ -18,13 +16,15 @@ const logger = require('../config/logger');
 const emailService = require('./email.service');
 
 const RESEND_COOLDOWN_MS = 60 * 1000;
+const OTP_LENGTH = 6;
+const OTP_TTL_MINUTES = 10;
 
 function hash(rawToken) {
   return crypto.createHash('sha256').update(rawToken).digest('hex');
 }
 
-function generateRawToken() {
-  return crypto.randomBytes(32).toString('base64url');
+function generateOTP() {
+  return String(Math.floor(100000 + Math.random() * 900000));
 }
 
 const isEnabled = () => emailService.enabled() && env.email.verificationTokenTtlMinutes > 0;
@@ -43,8 +43,8 @@ async function getRequirement(userId) {
 }
 
 /**
- * Mints a token and sends the verification email. Replaces any outstanding
- * token so an old link cannot be replayed after a resend.
+ * Generates an OTP and sends it via email. Replaces any outstanding
+ * OTP so an old code cannot be replayed after a resend.
  */
 async function createAndSend(userId) {
   const user = await User.findByPk(userId);
@@ -69,8 +69,8 @@ async function createAndSend(userId) {
     throw ApiError.conflict(`A verification email was just sent. Try again in ${waitSeconds} seconds.`);
   }
 
-  const rawToken = generateRawToken();
-  const expiresAt = new Date(Date.now() + env.email.verificationTokenTtlMinutes * 60 * 1000);
+  const otp = generateOTP();
+  const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000);
 
   await EmailVerificationToken.update(
     { usedAt: new Date(), expiresAt: new Date(0) },
@@ -78,31 +78,27 @@ async function createAndSend(userId) {
   );
   await EmailVerificationToken.create({
     userId,
-    tokenHash: hash(rawToken),
+    tokenHash: hash(otp),
     expiresAt,
   });
-
-  const verifyUrl = new URL('/verify-email', env.frontendUrl);
-  verifyUrl.searchParams.set('token', rawToken);
-  const ttlMinutes = env.email.verificationTokenTtlMinutes;
 
   try {
     await emailService.sendTransactional({
       to: user.email,
-      subject: 'Confirm your RideWing email',
+      subject: 'Your RideWing verification code',
       text:
         `Hi ${user.displayName},\n\n` +
-        `We received a request to create a RideWing account using this email address. ` +
-        `Confirm it by opening this link (valid for ${ttlMinutes} minutes):\n\n${verifyUrl.toString()}\n\n` +
+        `Your verification code is: ${otp}\n\n` +
+        `This code expires in ${OTP_TTL_MINUTES} minutes. ` +
         `If you did not create a RideWing account, you can ignore this email.\n`,
       html: emailService.renderHtml({
-        title: 'Confirm your email address',
+        title: 'Your verification code',
         preview: `Hi ${user.displayName},`,
         paragraphs: [
-          'We received a request to create a RideWing account using this email address. Confirm it by tapping the button below.',
-          `This link stays valid for ${ttlMinutes} minutes. If you did not create a RideWing account, you can ignore this email.`,
+          'Enter the following 6-digit code in the RideWing app to verify your email address:',
+          `<div style="font-size: 32px; font-weight: 700; letter-spacing: 8px; text-align: center; margin: 24px 0; font-family: monospace;">${otp}</div>`,
+          `This code expires in ${OTP_TTL_MINUTES} minutes. If you did not create a RideWing account, you can ignore this email.`,
         ],
-        button: { href: verifyUrl.toString(), label: 'Verify email address' },
       }),
     });
   } catch (error) {
@@ -114,20 +110,18 @@ async function createAndSend(userId) {
 }
 
 /**
- * Redeems a raw token against the current user. If the email belongs to a
- * different account it is still accepted — the login is the authorization —
- * so an account can adopt the address it signed up with.
+ * Verifies an OTP code against the current user.
  */
-async function verify(userId, rawToken) {
+async function verify(userId, otp) {
   const user = await User.findByPk(userId);
   if (!user) throw ApiError.notFound('Account not found');
 
-  const token = await EmailVerificationToken.findOne({ where: { tokenHash: hash(rawToken) } });
+  const token = await EmailVerificationToken.findOne({ where: { tokenHash: hash(otp) } });
   if (!token?.isUsable()) {
-    throw ApiError.badRequest('This verification link is invalid or has expired');
+    throw ApiError.badRequest('This verification code is invalid or has expired');
   }
   if (token.userId !== user.id) {
-    throw ApiError.badRequest('This verification link does not match your account');
+    throw ApiError.badRequest('This verification code does not match your account');
   }
 
   await token.update({ usedAt: new Date() });

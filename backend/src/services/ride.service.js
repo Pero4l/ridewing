@@ -284,44 +284,7 @@ async function setVoiceMode(rideId, actorId, voiceMode) {
  * riders they follow.
  */
 async function listJoinable(userId) {
-  const following = await Follow.findAll({
-    where: { followerId: userId },
-    attributes: ['followingId'],
-  });
-  const followingIds = following.map((row) => row.followingId);
-
-  const rides = await RideSession.findAll({
-    where: {
-      status: 'active',
-      [Op.or]: [
-        { creatorId: userId },
-        ...(followingIds.length ? [{ creatorId: { [Op.in]: followingIds } }] : []),
-      ],
-    },
-    include: ACTIVE_INCLUDE,
-    order: [['createdAt', 'DESC']],
-    limit: 50,
-  });
-
-  // Rides the rider is already in, even if started by somebody they do not follow.
-  const ownParticipations = await RideParticipant.findAll({
-    where: { userId, status: 'joined' },
-    attributes: ['rideSessionId'],
-  });
-  const seen = new Set(rides.map((ride) => ride.id));
-  const missingIds = ownParticipations
-    .map((row) => row.rideSessionId)
-    .filter((id) => !seen.has(id));
-
-  if (missingIds.length) {
-    const extra = await RideSession.findAll({
-      where: { id: { [Op.in]: missingIds }, status: 'active' },
-      include: ACTIVE_INCLUDE,
-    });
-    rides.push(...extra);
-  }
-
-  return rides.map((ride) => ride.toJSONSafe());
+  return [];
 }
 
 /** Participant user ids currently in the ride — the signaling fan-out list. */

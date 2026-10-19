@@ -37,6 +37,7 @@ module.exports = (sequelize, DataTypes) => {
           'comment_like',
           'support_ticket',
           'ride_signal',
+          'mention',
         ),
         allowNull: false,
       },

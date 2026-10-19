@@ -397,10 +397,10 @@ export async function postResetPassword(token: string, password: string) {
   });
 }
 
-export async function verifyEmail(token: string) {
+export async function verifyEmail(code: string) {
   return request<{ verified: boolean }>("/api/auth/verify-email", {
     method: "POST",
-    body: { token },
+    body: { code },
     skipAuth: true,
   });
 }

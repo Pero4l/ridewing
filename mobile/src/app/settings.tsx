@@ -327,6 +327,21 @@ export default function SettingsScreen() {
           </View>
         </Card>
 
+        <Card padded={false} style={styles.group}>
+          <ListRow
+            title="Sign out"
+            icon="log-out-outline"
+            iconTone="danger"
+            onPress={() => {
+              Alert.alert("Sign out?", "You can sign back in any time.", [
+                { text: "Cancel", style: "cancel" },
+                { text: "Sign out", style: "destructive", onPress: () => void logout() },
+              ]);
+            }}
+            showChevron={false}
+          />
+        </Card>
+
         <T size={11} tone="muted" style={styles.deviceHint}>
           The device id binds your session to this install, so a copied cookie
           from another device is rejected.

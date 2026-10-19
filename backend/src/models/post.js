@@ -30,6 +30,7 @@ module.exports = (sequelize, DataTypes) => {
     Post.hasMany(db.PostComment, { foreignKey: 'postId', as: 'comments' });
     Post.hasMany(db.PostShare, { foreignKey: 'postId', as: 'shares' });
     Post.hasMany(db.Message, { foreignKey: 'sharedPostId', as: 'sharedMessages' });
+    Post.belongsToMany(db.Hashtag, { through: db.PostHashtag, foreignKey: 'postId', as: 'hashtags' });
   };
 
   return Post;

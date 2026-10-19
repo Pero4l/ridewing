@@ -148,6 +148,10 @@ function buildPushPayload(notification) {
         : `${actor} sent you a message`;
       break;
     case 'support_ticket': copy.title = 'Your support ticket was resolved'; break;
+    case 'mention':
+      copy.title = `${actor} mentioned you`;
+      copy.body = data.content ? `"${data.content.slice(0, 100)}"` : 'Open RideWing to see the mention';
+      break;
     default: break;
   }
 
@@ -250,6 +254,18 @@ function buildEmailPayload(notification) {
       preview = `A member of the RideWing team resolved your support ticket${data.subject ? ` "${data.subject}"` : ''}.`;
       button = { href: `${frontend}/app/support`, label: 'View ticket' };
       break;
+    case 'mention': {
+      const postId = data.postId;
+      const entityId = data.entityId;
+      const postHref = postId ? `${frontend}/app/post/${postId}` : appHref;
+      subject = `${actorName} mentioned you`;
+      preview = `${actorName} mentioned you in a post on RideWing.`;
+      if (data.content) {
+        paragraphs = [`"${data.content.slice(0, 200)}"`];
+      }
+      button = { href: postHref, label: 'View post' };
+      break;
+    }
     default:
       break;
   }

@@ -38,7 +38,6 @@ export default function RidesScreen() {
   const load = useCallback(async () => {
     setError(null);
     try {
-      // `/api/rides` returns a bare `{ rides }` — not a paginated page object.
       const res = await api.get<{ rides: Ride[] }>("/api/rides");
       setRides(res.rides);
     } catch (err) {
@@ -52,9 +51,6 @@ export default function RidesScreen() {
   useEffect(() => {
     void load();
   }, [load]);
-
-  const active = rides.filter((r) => r.status === "active");
-  const ended = rides.filter((r) => r.status !== "active").slice(0, 5);
 
   return (
     <Screen>
@@ -80,9 +76,7 @@ export default function RidesScreen() {
               Rides
             </T>
             <T size={12} muted style={styles.subtitle}>
-              {active.length > 0
-                ? `${active.length} live now — jump in`
-                : "Group voice for the road"}
+              Private group voice for the road
             </T>
           </View>
           <Pressable
@@ -124,17 +118,17 @@ export default function RidesScreen() {
           <ErrorState message={error} onRetry={() => void load()} />
         ) : (
           <View style={styles.body}>
-            {/* Live */}
+            {/* Your active rides */}
             <View style={styles.section}>
               <View style={styles.sectionLabel}>
                 <View style={[styles.liveDot, { backgroundColor: "#FF3040" }]} />
                 <T size={11} weight="700" muted style={styles.sectionLabelText}>
-                  {active.length > 0 ? `LIVE NOW · ${active.length}` : "LIVE NOW"}
+                  YOUR ACTIVE RIDES
                 </T>
               </View>
-              {active.length > 0 ? (
+              {rides.filter((r) => r.status === "active").length > 0 ? (
                 <View style={styles.cards}>
-                  {active.map((ride) => (
+                  {rides.filter((r) => r.status === "active").map((ride) => (
                     <LiveRideCard key={ride.id} ride={ride} />
                   ))}
                 </View>
@@ -146,9 +140,9 @@ export default function RidesScreen() {
                   >
                     <Ionicons name="navigate-outline" size={26} color={colors.muted} />
                   </View>
-                  <T size={15} weight="700">No rides running</T>
+                  <T size={15} weight="700">No active rides</T>
                   <T size={13} tone="muted" className="text-center">
-                    Start one and riders you follow can join the voice room.
+                    Start a ride and share the invite code with your crew.
                   </T>
                   <View className="mt-2">
                     <Button label="Start a ride" size="sm" icon="navigate" onPress={() => router.push("/ride/new")} />
@@ -158,13 +152,13 @@ export default function RidesScreen() {
             </View>
 
             {/* Recently ended */}
-            {ended.length > 0 ? (
+            {rides.filter((r) => r.status !== "active").slice(0, 5).length > 0 ? (
               <View style={styles.section}>
                 <T size={11} weight="700" muted style={styles.sectionLabelTextPadded}>
                   RECENTLY ENDED
                 </T>
                 <Card padded={false} className="overflow-hidden">
-                  {ended.map((ride, index) => (
+                  {rides.filter((r) => r.status !== "active").slice(0, 5).map((ride, index) => (
                     <View key={ride.id}>
                       {index > 0 ? <Divider /> : null}
                       <Pressable
@@ -203,7 +197,7 @@ export default function RidesScreen() {
                 <T size={13} weight="700">How rides work</T>
               </View>
               <T size={13} tone="muted" style={{ lineHeight: 19 }}>
-                Rides are live voice rooms for a route. Start one to open the room, share the invite code, and ride together — or join a code a rider shared with you.
+                Rides are private voice rooms for your crew. Start one, share the invite code, and ride together. Only riders with the code can join.
               </T>
             </Card>
           </View>

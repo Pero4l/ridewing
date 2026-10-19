@@ -18,7 +18,7 @@ const verificationStatus = asyncHandler(async (req, res) => {
 });
 
 const verifyEmail = asyncHandler(async (req, res) => {
-  const user = await emailVerificationService.verify(req.user.id, req.body.token);
+  const user = await emailVerificationService.verify(req.user.id, req.body.code);
   res.json(user);
 });
 

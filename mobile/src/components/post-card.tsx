@@ -567,6 +567,8 @@ export const PostCard = forwardRef<
               horizontal
               pagingEnabled
               showsHorizontalScrollIndicator={false}
+              nestedScrollEnabled={true}
+              scrollEventThrottle={16}
               onMomentumScrollEnd={(e) => {
                 const i = Math.round(e.nativeEvent.contentOffset.x / mediaWidth);
                 setActiveIndex(i);

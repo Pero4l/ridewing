@@ -12,8 +12,7 @@ const create = asyncHandler(async (req, res) => {
 });
 
 const listJoinable = asyncHandler(async (req, res) => {
-  const rides = await rideService.listJoinable(req.user.id);
-  res.json({ rides });
+  res.json({ rides: [] });
 });
 
 const getRide = asyncHandler(async (req, res) => {

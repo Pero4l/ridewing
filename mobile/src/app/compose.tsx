@@ -33,6 +33,7 @@ async function uploadMedia(
   uri: string,
   mimeType: string,
   kind: "image" | "video",
+  onProgress?: (percent: number) => void,
 ): Promise<PostMedia> {
   const extension = (mimeType.split("/")[1] ?? (kind === "video" ? "mp4" : "jpeg")).split("+")[0];
   const form = new FormData();
@@ -51,6 +52,11 @@ async function uploadMedia(
       xhr.open("POST", `${getBaseUrl()}/api/upload/${kind}`);
       const token = getAccessToken();
       if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable && event.total > 0) {
+          onProgress?.(Math.round((event.loaded / event.total) * 100));
+        }
+      };
       xhr.onload = () => resolve({ status: xhr.status, text: xhr.responseText });
       xhr.onerror = () => reject(new Error("Upload failed"));
       xhr.send(form);
@@ -94,6 +100,7 @@ export default function ComposeScreen() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
 
   const ready = content.trim().length > 0 || media.length > 0;
   const remaining = 2000 - content.length;
@@ -121,8 +128,16 @@ export default function ComposeScreen() {
     setUploading(true);
     try {
       for (const asset of result.assets) {
-        const uploaded = await uploadMedia(asset.uri, asset.mimeType ?? "image/jpeg", "image");
+        const tempKey = `upload-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const uploaded = await uploadMedia(asset.uri, asset.mimeType ?? "image/jpeg", "image", (percent) => {
+          setUploadProgress((prev) => ({ ...prev, [tempKey]: percent }));
+        });
         setMedia((current) => [...current, uploaded].slice(0, 9));
+        setUploadProgress((prev) => {
+          const next = { ...prev };
+          delete next[tempKey];
+          return next;
+        });
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not upload those photos.");
@@ -148,18 +163,23 @@ export default function ComposeScreen() {
     if (result.canceled || !result.assets[0]) return;
 
     const asset = result.assets[0];
-    // `duration` is milliseconds. The backend caps uploads well above a
-    // minute, but reels are a 60-second format — reject early with a clear
-    // message instead of a mysterious server error.
     if (asset.duration != null && asset.duration > 65_000) {
       setError("Keep videos to 60 seconds or less.");
       return;
     }
 
+    const tempKey = `upload-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     setUploading(true);
     try {
-      const uploaded = await uploadMedia(asset.uri, asset.mimeType ?? "video/mp4", "video");
+      const uploaded = await uploadMedia(asset.uri, asset.mimeType ?? "video/mp4", "video", (percent) => {
+        setUploadProgress((prev) => ({ ...prev, [tempKey]: percent }));
+      });
       setMedia((current) => [...current, uploaded].slice(0, 9));
+      setUploadProgress((prev) => {
+        const next = { ...prev };
+        delete next[tempKey];
+        return next;
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not upload that video.");
     } finally {
@@ -284,6 +304,22 @@ export default function ComposeScreen() {
               textAlignVertical="top"
             />
           </View>
+
+          {/* Upload progress bars */}
+          {Object.keys(uploadProgress).length > 0 ? (
+            <View style={styles.progressContainer}>
+              {Object.entries(uploadProgress).map(([key, percent]) => (
+                <View key={key} style={styles.progressBar}>
+                  <View
+                    style={[
+                      styles.progressFill,
+                      { width: `${percent}%`, backgroundColor: colors.accent },
+                    ]}
+                  />
+                </View>
+              ))}
+            </View>
+          ) : null}
 
           {/* Media strip — photos and videos, in post order */}
           {media.length > 0 ? (
@@ -479,6 +515,21 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.6)",
     alignItems: "center",
     justifyContent: "center",
+  },
+  progressContainer: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    gap: 4,
+  },
+  progressBar: {
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "#E4E4E7",
+    overflow: "hidden",
+  },
+  progressFill: {
+    height: "100%",
+    borderRadius: 2,
   },
   attachRow: {
     flexDirection: "row",

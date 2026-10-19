@@ -43,6 +43,17 @@ function canEditMedia(createdAt, now = Date.now()) {
   return now - new Date(createdAt).getTime() < MEDIA_EDIT_WINDOW_MS;
 }
 
+/** Extract @mentions from text. Returns unique usernames without the @ symbol. */
+function extractMentions(text) {
+  const mentionRegex = /@([a-zA-Z0-9_]{1,30})/g;
+  const mentions = [];
+  let match;
+  while ((match = mentionRegex.exec(text)) !== null) {
+    mentions.push(match[1].toLowerCase());
+  }
+  return [...new Set(mentions)];
+}
+
 /** Validates client-supplied media into a normalized shape. */
 function sanitizeMedia(rawMedia) {
   if (rawMedia === undefined || rawMedia === null) return [];
@@ -87,6 +98,27 @@ async function create(userId, { content, media: rawMedia }) {
 
   const post = await Post.create({ userId, content: contentText, media, likeCount: 0, commentCount: 0, shareCount: 0 });
   post.user = await User.findByPk(userId);
+
+  // Extract @mentions and notify mentioned users
+  const mentions = extractMentions(contentText);
+  if (mentions.length > 0) {
+    const mentionedUsers = await User.findAll({
+      where: { username: { [Op.in]: mentions } },
+      attributes: ['id', 'username'],
+    });
+    for (const mentionedUser of mentionedUsers) {
+      if (mentionedUser.id !== userId) {
+        await notificationService.create({
+          userId: mentionedUser.id,
+          actorId: userId,
+          type: 'mention',
+          entityType: 'post',
+          entityId: post.id,
+          data: { postId: post.id, content: contentText, mentionedUsername: mentionedUser.username },
+        });
+      }
+    }
+  }
 
   emailService.alertAdmins({
     subject: 'RideWing: new post created',
@@ -424,6 +456,26 @@ async function addComment(postId, userId, rawContent, parentId) {
           entityId: parent.id,
           data: { postId, commentId: comment.id },
         });
+      }
+      // Extract @mentions from comment content and notify mentioned users
+      const mentions = extractMentions(content);
+      if (mentions.length > 0) {
+        const mentionedUsers = await User.findAll({
+          where: { username: { [Op.in]: mentions } },
+          attributes: ['id', 'username'],
+        });
+        for (const mentionedUser of mentionedUsers) {
+          if (mentionedUser.id !== userId) {
+            await notificationService.create({
+              userId: mentionedUser.id,
+              actorId: userId,
+              type: 'mention',
+              entityType: 'comment',
+              entityId: comment.id,
+              data: { postId, commentId: comment.id, content, mentionedUsername: mentionedUser.username },
+            });
+          }
+        }
       }
     });
 
