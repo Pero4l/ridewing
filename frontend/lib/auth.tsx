@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import {
   AUTH_EXPIRED_EVENT,
   getAccessToken,
@@ -42,6 +43,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<Me | null>(null);
   const refreshingRef = useRef(false);
   const statusRef = useRef<SessionState["status"]>("loading");
+  const router = useRouter();
   useEffect(() => {
     statusRef.current = status;
   }, [status]);
@@ -150,8 +152,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setAccessToken(null);
       setUser(null);
       setStatus("guest");
+      router.replace("/");
     }
-  }, []);
+  }, [router]);
 
   // Idle tracking. Interaction refreshes the "last active" stamp. A rider who
   // stays away past the idle window is logged out on return; a quick return just

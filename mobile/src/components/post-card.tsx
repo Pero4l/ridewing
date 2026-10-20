@@ -19,6 +19,7 @@ import {
   Alert,
   Animated,
   FlatList,
+  GestureResponderEvent,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -293,6 +294,7 @@ function MediaSlide({
   const { colors } = usePalette();
   const lastTap = useRef(0);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const touchStart = useRef<{ x: number; y: number; time: number } | null>(null);
   const [started, setStarted] = useState(false);
   const [muted, setMuted] = useState(false);
 
@@ -317,6 +319,25 @@ function MediaSlide({
         timer.current = null;
         singleAction();
       }, 300);
+    }
+  }
+
+  function onTouchStart(e: GestureResponderEvent) {
+    touchStart.current = {
+      x: e.nativeEvent.locationX,
+      y: e.nativeEvent.locationY,
+      time: Date.now(),
+    };
+  }
+
+  function onTouchEnd(e: GestureResponderEvent) {
+    if (!touchStart.current) return;
+    const dx = Math.abs(e.nativeEvent.locationX - touchStart.current.x);
+    const dy = Math.abs(e.nativeEvent.locationY - touchStart.current.y);
+    const dt = Date.now() - touchStart.current.time;
+    touchStart.current = null;
+    if (dx < 10 && dy < 10 && dt < 300) {
+      handlePress(onSingleTap);
     }
   }
 
@@ -393,9 +414,14 @@ function MediaSlide({
       </View>
     );
   }
-
   return (
-    <Pressable onPress={() => handlePress(onSingleTap)} accessibilityRole="imagebutton">
+    <View
+      onTouchStart={onTouchStart}
+      onTouchEnd={onTouchEnd}
+      onTouchCancel={() => { touchStart.current = null; }}
+      accessibilityRole="imagebutton"
+      accessibilityLabel="Post media"
+    >
       <Image
         source={{ uri: item.posterUrl ?? item.url }}
         style={{
@@ -407,7 +433,7 @@ function MediaSlide({
         contentFit="cover"
         transition={150}
       />
-    </Pressable>
+    </View>
   );
 }
 

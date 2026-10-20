@@ -126,7 +126,7 @@ export function PostCard({ post, onChanged, viewer, defaultShowComments = false 
               </p>
               <p className="text-xs text-zinc-400">
                 @{author.username} · {timeAgo(post.createdAt)}
-                {post.editedAt && <span> · edited</span>}
+                {(isMine || viewerUser?.role === "admin") && post.editedAt && <span> · edited</span>}
               </p>
             </div>
           </Link>

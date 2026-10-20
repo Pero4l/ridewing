@@ -1,8 +1,7 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { useSession } from "@/lib/auth";
 import { AuthShell } from "@/components/auth-shell";
@@ -25,51 +24,17 @@ export default function VerifyEmailPage() {
 }
 
 function VerifyInner() {
-  const params = useSearchParams();
-  const token = params.get("token") ?? "";
   const { status, user, refreshUser, logout } = useSession();
-  const [verify, setVerify] = useState<VerifyStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [errorSent, setErrorSent] = useState(false);
   const [code, setCode] = useState("");
-  const ranRef = useRef(false);
+  const [verify, setVerify] = useState<VerifyStatus>("idle");
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      if (status === "loading") return;
-      if (status === "guest") {
-        if (!cancelled) setVerify("guest-needed");
-        return;
-      }
-      // Already verified on this device — nothing to do.
-      if (user?.emailVerifiedAt) {
-        if (!cancelled) setVerify("verified");
-        return;
-      }
-      if (!token) {
-        if (!cancelled) setVerify("idle");
-        return;
-      }
-      if (ranRef.current) return;
-      ranRef.current = true;
+  // Compute base status from session (for initial render and when not in async flow)
+  const baseStatus: VerifyStatus = status === "loading" ? "working" : status === "guest" ? "guest-needed" : user?.emailVerifiedAt ? "verified" : "idle";
 
-      if (!cancelled) setVerify("working");
-      try {
-        await api.post("/api/auth/verify-email", { code: token });
-        if (!cancelled) await refreshUser();
-        if (!cancelled) setVerify("verified");
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof ApiError ? err.message : "Could not verify your email");
-          setVerify("failed");
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [status, user?.emailVerifiedAt, token, refreshUser]);
+  // Effective status: use async state if we're in an async flow, otherwise use base status
+  const effectiveVerify = verify !== "idle" ? verify : baseStatus;
 
   const sendNewCode = useCallback(async () => {
     setError(null);
@@ -101,19 +66,19 @@ function VerifyInner() {
 
   return (
     <AuthShell>
-      <VerifyCard status={verify} onSignOut={verify === "guest-needed" ? null : () => void logout()}>
-        {verify === "guest-needed" && (
+      <VerifyCard status={effectiveVerify} onSignOut={effectiveVerify === "guest-needed" ? null : () => void logout()}>
+        {effectiveVerify === "guest-needed" && (
           <div className="text-center">
             <p className="mt-1 mb-4 text-sm text-zinc-500 dark:text-zinc-400">
-              Sign in, then come back to this link to confirm your email.
+              Sign in, then come back to verify your email.
             </p>
-            <Link className={LINK_BUTTON} href={`/login?next=${encodeURIComponent(`/verify-email?token=${token}`)}`}>
+            <Link className={LINK_BUTTON} href="/login">
               Sign in
             </Link>
           </div>
         )}
 
-        {verify === "verified" && (
+        {effectiveVerify === "verified" && (
           <div className="text-center">
             <VerifiedBadgeIcon size={40} className="mx-auto text-emerald-500 dark:text-emerald-400" />
             <p className="mt-3 font-semibold text-zinc-900 dark:text-zinc-100">Email verified</p>
@@ -126,7 +91,7 @@ function VerifyInner() {
           </div>
         )}
 
-        {verify === "failed" && (
+        {effectiveVerify === "failed" && (
           <div>
             <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/50 dark:text-red-300">
               {error}
@@ -137,18 +102,15 @@ function VerifyInner() {
           </div>
         )}
 
-        {verify === "idle" && (
+        {effectiveVerify === "idle" && (
           <div className="space-y-4">
             <p className="mt-1 mb-4 text-sm text-zinc-500 dark:text-zinc-400 text-center">
-              No verification link in the address bar. Request a fresh one below.
+              Enter the 6-digit code from your email
             </p>
             <Button full onClick={() => void sendNewCode()}>
               {errorSent ? "Sent — check your inbox" : "Send verification email"}
             </Button>
             <div className="pt-4 border-t border-zinc-200 dark:border-zinc-800">
-              <p className="mb-3 text-center text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                Or enter a 6-digit code from your email
-              </p>
               <form onSubmit={handleSubmit} className="space-y-3">
                 <div className="flex items-center justify-center gap-2">
                   {[...Array(6)].map((_, i) => (

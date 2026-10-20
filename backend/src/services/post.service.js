@@ -19,6 +19,8 @@ const {
   PostShare,
   Follow,
   User,
+  Hashtag,
+  PostHashtag,
 } = require('../models');
 const ApiError = require('../utils/ApiError');
 const { normalizeLimit, decodeCursor, buildPage } = require('../utils/pagination');
@@ -52,6 +54,41 @@ function extractMentions(text) {
     mentions.push(match[1].toLowerCase());
   }
   return [...new Set(mentions)];
+}
+
+/** Extract #hashtags from text. Returns unique tags without the # symbol, normalized to lowercase. */
+function extractHashtags(text) {
+  const hashtagRegex = /#([\p{L}\p{N}_]{1,100})/gu;
+  const tags = [];
+  let match;
+  while ((match = hashtagRegex.exec(text)) !== null) {
+    tags.push(match[1].toLowerCase());
+  }
+  return [...new Set(tags)];
+}
+
+/** Persist hashtags for a post: create missing tags, update post_hashtags join, increment postCount. */
+async function syncHashtags(postId, tags) {
+  if (!tags.length) {
+    await PostHashtag.destroy({ where: { postId } });
+    return;
+  }
+
+  await sequelize.transaction(async (transaction) => {
+    await PostHashtag.destroy({ where: { postId }, transaction });
+
+    for (const tag of tags) {
+      const [hashtag] = await Hashtag.findOrCreate({
+        where: { tag },
+        defaults: { tag, postCount: 0 },
+        transaction,
+      });
+
+      await PostHashtag.create({ postId, hashtagId: hashtag.id }, { transaction });
+
+      await Hashtag.increment('postCount', { by: 1, where: { id: hashtag.id }, transaction });
+    }
+  });
 }
 
 /** Validates client-supplied media into a normalized shape. */
@@ -120,6 +157,11 @@ async function create(userId, { content, media: rawMedia }) {
     }
   }
 
+  const hashtags = extractHashtags(contentText);
+  if (hashtags.length > 0) {
+    await syncHashtags(post.id, hashtags);
+  }
+
   emailService.alertAdmins({
     subject: 'RideWing: new post created',
     text: `A new post was published by @${post.user?.username ?? userId}.`,
@@ -175,6 +217,9 @@ async function update(postId, userId, { content, media: rawMedia }) {
   }
   post.editedAt = new Date();
   await post.save();
+
+  const hashtags = extractHashtags(contentText);
+  await syncHashtags(post.id, hashtags);
 
   const liked = await PostLike.findOne({ where: { postId: post.id, userId }, attributes: ['id'] });
   return toJSON(post, { viewerLiked: Boolean(liked) });
@@ -622,6 +667,10 @@ async function remove(postId, userId) {
   const post = await Post.findByPk(postId, { attributes: ['id', 'userId'] });
   if (!post) throw ApiError.notFound('Post not found');
   if (post.userId !== userId) throw ApiError.forbidden('You can only delete your own posts');
+
+  const hashtags = extractHashtags(post.content);
+  await syncHashtags(postId, hashtags);
+
   await post.destroy();
   return { deleted: true };
 }

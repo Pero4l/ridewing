@@ -105,9 +105,19 @@ export default function ProfileScreen() {
                   <Ionicons name="add-circle-outline" size={26} color={colors.ink} />
                 </Pressable>
                 <Pressable
-                  onPress={() => router.push("/settings")}
+                  onPress={() => {
+                    Alert.alert(
+                      "More",
+                      "",
+                      [
+                        { text: "Settings", onPress: () => router.push("/settings") },
+                        { text: "Sign out", style: "destructive", onPress: confirmSignOut },
+                        { text: "Cancel", style: "cancel" },
+                      ],
+                    );
+                  }}
                   hitSlop={10}
-                  accessibilityLabel="Settings"
+                  accessibilityLabel="More options"
                   className="h-10 w-10 items-center justify-center active:opacity-60"
                 >
                   <Ionicons name="menu-outline" size={26} color={colors.ink} />

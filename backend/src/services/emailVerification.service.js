@@ -83,6 +83,45 @@ async function createAndSend(userId) {
   });
 
   try {
+    const otpHtml = `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; max-width: 480px; margin: 0 auto;">
+        <!-- Header -->
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background: linear-gradient(135deg, #059669 0%, #047857 100%); border-radius: 16px 16px 0 0; padding: 24px 20px;">
+          <tr>
+            <td align="center" style="color: #ffffff; font-size: 20px; font-weight: 700; letter-spacing: 0.5px;">
+              RideWing
+            </td>
+          </tr>
+        </table>
+        
+        <!-- Main Content -->
+        <div style="background: #ffffff; border: 1px solid #e4e4e7; border-top: 0; border-radius: 0 0 16px 16px; padding: 32px 24px;">
+          <h1 style="margin: 0 0 8px; font-size: 22px; color: #18181b; font-weight: 700; text-align: center;">Your verification code</h1>
+          <p style="margin: 0 0 24px; color: #71717a; font-size: 14px; text-align: center;">Hi ${user.displayName},</p>
+          
+          <p style="margin: 0 0 16px; color: #3f3f46; font-size: 14px; text-align: center; line-height: 1.5;">Enter the following 6-digit code in the RideWing app to verify your email address:</p>
+          
+          <!-- OTP Code Box -->
+          <div style="margin: 28px 0; text-align: center;">
+            <div style="display: inline-block; background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%); border: 2px solid #86efac; border-radius: 16px; padding: 20px 32px; box-shadow: 0 4px 14px rgba(5, 150, 105, 0.15);">
+              <div style="font-size: 40px; font-weight: 800; letter-spacing: 12px; color: #059669; font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Mono', monospace; text-shadow: 0 2px 4px rgba(5, 150, 105, 0.1);">
+                ${otp}
+              </div>
+            </div>
+          </div>
+          
+          <p style="margin: 24px 0 0; color: #71717a; font-size: 13px; text-align: center; line-height: 1.5;">
+            This code expires in <strong>${OTP_TTL_MINUTES} minutes</strong>. If you did not create a RideWing account, you can safely ignore this email.
+          </p>
+        </div>
+        
+        <!-- Footer -->
+        <p style="font-size: 12px; color: #a1a1aa; margin: 20px 0 0; text-align: center;">
+          RideWing &middot; Ride with riders you trust
+        </p>
+      </div>
+    `;
+
     await emailService.sendTransactional({
       to: user.email,
       subject: 'Your RideWing verification code',
@@ -91,15 +130,7 @@ async function createAndSend(userId) {
         `Your verification code is: ${otp}\n\n` +
         `This code expires in ${OTP_TTL_MINUTES} minutes. ` +
         `If you did not create a RideWing account, you can ignore this email.\n`,
-      html: emailService.renderHtml({
-        title: 'Your verification code',
-        preview: `Hi ${user.displayName},`,
-        paragraphs: [
-          'Enter the following 6-digit code in the RideWing app to verify your email address:',
-          `<div style="font-size: 32px; font-weight: 700; letter-spacing: 8px; text-align: center; margin: 24px 0; font-family: monospace;">${otp}</div>`,
-          `This code expires in ${OTP_TTL_MINUTES} minutes. If you did not create a RideWing account, you can ignore this email.`,
-        ],
-      }),
+      html: otpHtml,
     });
   } catch (error) {
     await EmailVerificationToken.destroy({ where: { userId } });
