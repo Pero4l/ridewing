@@ -88,7 +88,7 @@ function contentSecurityPolicy(cdn: string[], apiUrl: string) {
     `img-src ${img}`,
     `media-src ${img}`,
     "font-src 'self' data:",
-    `connect-src 'self' ${apiUrl}`,
+    `connect-src 'self' ${apiUrl} ${apiUrl.replace(/^https:/, 'wss:')}`,
     "worker-src 'self' blob:",
     "manifest-src 'self'",
     "object-src 'none'",
