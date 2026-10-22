@@ -57,7 +57,7 @@ const changePassword = z
 
 const verifyEmail = z
   .object({
-    token: z.string().trim().min(20, 'Verification token is required').max(200),
+    code: z.string().trim().length(6, 'Verification code must be 6 digits'),
   })
   .strict();
 
