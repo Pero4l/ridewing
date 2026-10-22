@@ -15,7 +15,7 @@ import {
   refreshSessionGentle,
   setAccessToken,
 } from "./api";
-import type { Me } from "./types";
+import type { Me, ConnectedUser } from "./types";
 import { disconnectSocket } from "./socket";
 import { subscribeToPush, unsubscribeFromPush } from "./push";
 
@@ -31,7 +31,7 @@ type SessionState = {
   status: "loading" | "authed" | "guest";
   user: Me | null;
   login: (identifier: string, password: string) => Promise<void>;
-  register: (payload: Record<string, unknown>) => Promise<void>;
+  register: (payload: Record<string, unknown>) => Promise<ConnectedUser>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 };
@@ -141,6 +141,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setUser(session.user);
     setStatus("authed");
     primePush();
+    return session;
   }, []);
 
   const logout = useCallback(async () => {

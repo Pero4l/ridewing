@@ -8,6 +8,7 @@ import { useToast } from "@/components/toast";
 import { AuthLink, AuthShell } from "@/components/auth-shell";
 import { safeRedirect } from "@/lib/redirect";
 import { Button, Field, Input, PasswordInput } from "@/components/ui";
+import type { ConnectedUser } from "@/lib/types";
 
 type FormState = {
   username: string;
@@ -150,17 +151,21 @@ function RegisterForm() {
     setErrors(nextErrors);
     if (Object.values(nextErrors).some(Boolean)) return;
 
-    setSubmitting(true);
-    try {
-      await register({
-        username: form.username.trim().toLowerCase(),
-        displayName: form.displayName.trim(),
-        email: form.email.trim().toLowerCase() || undefined,
-        phone: normalizePhone(form.phone) || undefined,
-        password: form.password,
-      });
-      toast.success("Welcome to RideWing! Your account is ready.");
-      router.replace(redirectTo);
+setSubmitting(true);
+      try {
+        const session = await register({
+          username: form.username.trim().toLowerCase(),
+          displayName: form.displayName.trim(),
+          email: form.email.trim().toLowerCase() || undefined,
+          phone: normalizePhone(form.phone) || undefined,
+          password: form.password,
+        });
+        toast.success("Welcome to RideWing! Your account is ready.");
+        if (session.user.email && !session.user.emailVerifiedAt) {
+          router.replace("/verify-email");
+        } else {
+          router.replace(redirectTo);
+        }
     } catch (err) {
       if (err instanceof ApiError && err.details?.length) {
         const fieldMap: Record<string, keyof FormState> = {
