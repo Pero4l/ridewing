@@ -211,6 +211,29 @@ export function MediaPicker({
 
   return (
     <div className="space-y-3">
+      {/* Hidden file inputs — always mounted so refs are stable */}
+      <input
+        ref={imageRef}
+        type="file"
+        accept={ACCEPTED_TYPES.image.ext}
+        multiple
+        className="hidden"
+        onChange={(e) => { void handleFiles(e.target.files, "image"); e.target.value = ""; }}
+        aria-hidden
+        tabIndex={-1}
+        disabled={disabled || isUploading}
+      />
+      <input
+        ref={videoRef}
+        type="file"
+        accept={ACCEPTED_TYPES.video.ext}
+        className="hidden"
+        onChange={(e) => { void handleFiles(e.target.files, "video"); e.target.value = ""; }}
+        aria-hidden
+        tabIndex={-1}
+        disabled={disabled || isUploading}
+      />
+
       {/* Upload progress bars */}
       {Object.keys(uploadProgress).length > 0 && (
         <div className="space-y-1.5" role="status" aria-live="polite">
@@ -282,34 +305,27 @@ export function MediaPicker({
 
           {/* Add media button */}
           {(showImageButton || showVideoButton) && (
-            <label className="group cursor-pointer">
-              <input
-                ref={imageRef}
-                type="file"
-                accept={ACCEPTED_TYPES.image.ext}
-                multiple
-                className="hidden"
-                onChange={(e) => void handleFiles(e.target.files, "image")}
-                aria-hidden
-                tabIndex={-1}
-                disabled={disabled || isUploading}
-              />
-              <div className="group relative aspect-square grid place-items-center gap-2 rounded-xl border-2 border-dashed border-zinc-200 text-zinc-400 transition-all duration-200 hover:border-emerald-400 hover:text-emerald-500 hover:bg-emerald-50/50 dark:hover:bg-emerald-950/20 disabled:opacity-50 dark:border-zinc-700">
-                {isUploading ? (
-                  <SpinnerIcon size={22} className="animate-spin text-emerald-500" />
-                ) : (
-                  <>
-                    <ImageIcon size={22} />
-                    <span className="text-xs font-medium">Add more</span>
-                  </>
-                )}
-                {mediaLabel(maxImages) && (
-                  <span className="absolute bottom-1 right-1 text-[10px] font-bold text-zinc-400 group-hover:text-emerald-500 transition-colors">
-                    +{maxImages - imageCount}
-                  </span>
-                )}
-              </div>
-            </label>
+            <button
+              type="button"
+              className="group relative aspect-square grid place-items-center gap-2 rounded-xl border-2 border-dashed border-zinc-200 text-zinc-400 transition-all duration-200 hover:border-emerald-400 hover:text-emerald-500 hover:bg-emerald-50/50 dark:hover:bg-emerald-950/20 disabled:opacity-50 dark:border-zinc-700"
+              onClick={() => imageRef.current?.click()}
+              disabled={disabled || isUploading}
+              aria-label="Add more photos"
+            >
+              {isUploading ? (
+                <SpinnerIcon size={22} className="animate-spin text-emerald-500" />
+              ) : (
+                <>
+                  <ImageIcon size={22} />
+                  <span className="text-xs font-medium">Add more</span>
+                </>
+              )}
+              {mediaLabel(maxImages) && (
+                <span className="absolute bottom-1 right-1 text-[10px] font-bold text-zinc-400 group-hover:text-emerald-500 transition-colors">
+                  +{maxImages - imageCount}
+                </span>
+              )}
+            </button>
           )}
         </div>
       )}
@@ -331,49 +347,26 @@ export function MediaPicker({
           
           <div className="flex items-center justify-center gap-2">
             {showImageButton && (
-              <label className="cursor-pointer">
-                <input
-                  ref={imageRef}
-                  type="file"
-                  accept={ACCEPTED_TYPES.image.ext}
-                  multiple
-                  className="hidden"
-                  onChange={(e) => void handleFiles(e.target.files, "image")}
-                  aria-hidden
-                  tabIndex={-1}
-                  disabled={disabled || isUploading}
-                />
-                <button
-                  type="button"
-                  disabled={disabled || isUploading}
-                  className="inline-flex h-10 items-center gap-2 rounded-xl border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-700 shadow-xs transition-all hover:border-emerald-400 hover:text-emerald-700 hover:bg-emerald-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-emerald-400 dark:hover:text-emerald-400 dark:hover:bg-emerald-950/20"
-                >
-                  <ImageIcon size={16} />
-                  <span>Photos</span>
-                </button>
-              </label>
+              <button
+                type="button"
+                disabled={disabled || isUploading}
+                onClick={() => imageRef.current?.click()}
+                className="inline-flex h-10 items-center gap-2 rounded-xl border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-700 shadow-xs transition-all hover:border-emerald-400 hover:text-emerald-700 hover:bg-emerald-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-emerald-400 dark:hover:text-emerald-400 dark:hover:bg-emerald-950/20"
+              >
+                <ImageIcon size={16} />
+                <span>Photos</span>
+              </button>
             )}
             {showVideoButton && (
-              <label className="cursor-pointer">
-                <input
-                  ref={videoRef}
-                  type="file"
-                  accept={ACCEPTED_TYPES.video.ext}
-                  className="hidden"
-                  onChange={(e) => void handleFiles(e.target.files, "video")}
-                  aria-hidden
-                  tabIndex={-1}
-                  disabled={disabled || isUploading}
-                />
-                <button
-                  type="button"
-                  disabled={disabled || isUploading}
-                  className="inline-flex h-10 items-center gap-2 rounded-xl border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-700 shadow-xs transition-all hover:border-emerald-400 hover:text-emerald-700 hover:bg-emerald-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-emerald-400 dark:hover:text-emerald-400 dark:hover:bg-emerald-950/20"
-                >
-                  <VideoIcon size={16} />
-                  <span>Video</span>
-                </button>
-              </label>
+              <button
+                type="button"
+                disabled={disabled || isUploading}
+                onClick={() => videoRef.current?.click()}
+                className="inline-flex h-10 items-center gap-2 rounded-xl border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-700 shadow-xs transition-all hover:border-emerald-400 hover:text-emerald-700 hover:bg-emerald-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-emerald-400 dark:hover:text-emerald-400 dark:hover:bg-emerald-950/20"
+              >
+                <VideoIcon size={16} />
+                <span>Video</span>
+              </button>
             )}
           </div>
           

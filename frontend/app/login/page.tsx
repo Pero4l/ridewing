@@ -48,9 +48,13 @@ function LoginInner() {
 
     setSubmitting(true);
     try {
-      await login(identifier.trim(), password);
+      const session = await login(identifier.trim(), password);
       toast.success("Signed in. Welcome back!");
-      router.replace(redirectTo);
+      if (session.user.email && !session.user.emailVerifiedAt) {
+        router.replace("/verify-email");
+      } else {
+        router.replace(redirectTo);
+      }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not sign in. Try again.");
     } finally {

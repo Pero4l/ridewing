@@ -30,7 +30,7 @@ function primePush() {
 type SessionState = {
   status: "loading" | "authed" | "guest";
   user: Me | null;
-  login: (identifier: string, password: string) => Promise<void>;
+  login: (identifier: string, password: string) => Promise<ConnectedUser>;
   register: (payload: Record<string, unknown>) => Promise<ConnectedUser>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
@@ -134,6 +134,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setUser(session.user);
     setStatus("authed");
     primePush();
+    return session;
   }, []);
 
   const register = useCallback(async (payload: Record<string, unknown>) => {

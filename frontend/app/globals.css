@@ -53,6 +53,7 @@ input,
 select,
 textarea {
   color-scheme: inherit;
+  outline: none;
 }
 
 ::selection {
