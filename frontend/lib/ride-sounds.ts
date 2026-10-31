@@ -54,3 +54,35 @@ export function playNotificationSound() {
   tone(context, "sine", 0.12, 0.15, 659, 0.2);
   tone(context, "sine", 0.24, 0.15, 784, 0.2);
 }
+
+/**
+ * Boundary warning sounds.
+ *
+ * These are deliberately short and distinct, not sirens: the rider is moving
+ * and must not be startled into an unsafe manoeuvre. The visual banner is the
+ * primary signal; audio is a best-effort nudge and silently does nothing when
+ * the browser blocks or mutes audio.
+ */
+export function playBoundaryAheadSound() {
+  const context = audio();
+  if (!context) return;
+  tone(context, "triangle", 0, 0.18, 740, 0.22);
+  tone(context, "triangle", 0.2, 0.22, 988, 0.22);
+  tone(context, "triangle", 0.46, 0.3, 1319, 0.2);
+}
+
+export function playBoundaryBehindSound() {
+  const context = audio();
+  if (!context) return;
+  tone(context, "triangle", 0, 0.22, 660, 0.22);
+  tone(context, "triangle", 0.26, 0.26, 494, 0.22);
+}
+
+/** Used by the pre-ride "test alert sound" control. */
+export function playBoundaryTestSound() {
+  const context = audio();
+  if (!context) return;
+  tone(context, "sine", 0, 0.2, 880, 0.2);
+  tone(context, "sine", 0.28, 0.2, 660, 0.2);
+  tone(context, "sine", 0.56, 0.25, 880, 0.2);
+}

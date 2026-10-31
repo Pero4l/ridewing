@@ -35,6 +35,36 @@ router.post(
   rideController.leave,
 );
 router.post('/:rideId/end', writeLimiter, validate({ params: v.rideParam }), rideController.end);
+
+// Creator-only group formation controls.
+router.put(
+  '/:rideId/positions',
+  writeLimiter,
+  validate({ params: v.rideParam, body: v.assignPosition }),
+  rideController.assignPosition,
+);
+router.put(
+  '/:rideId/boundary-settings',
+  writeLimiter,
+  validate({ params: v.rideParam, body: v.setBoundarySettings }),
+  rideController.setBoundarySettings,
+);
+
+// Live location is the caller's own location, resolved from the authenticated
+// token — the body never carries a userId.
+router.put(
+  '/:rideId/location',
+  writeLimiter,
+  validate({ params: v.rideParam, body: v.reportLocation }),
+  rideController.reportLocation,
+);
+router.delete(
+  '/:rideId/location',
+  writeLimiter,
+  validate({ params: v.rideParam }),
+  rideController.stopLocationSharing,
+);
+
 router.put(
   '/:rideId/voice-mode',
   writeLimiter,

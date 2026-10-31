@@ -50,6 +50,10 @@ module.exports = async function socketAuth(socket, next) {
         .filter((room) => room.startsWith('ride:'))
         .map((room) => room.slice('ride:'.length)),
     );
+    // Tracking-only room memberships are tracked separately: dropping the map
+    // tab must not eject the rider from the ride roster the way closing a voice
+    // peer does.
+    socket.data.watchRides = new Set();
 
     return next();
   } catch (error) {

@@ -1,19 +1,21 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   KeyboardAvoidingView,
   Platform,
   Pressable,
   StyleSheet,
+  Text,
   TextInput,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { Image } from "expo-image";
+import * as Haptics from "expo-haptics";
 
 import { PostCard, type PostActions } from "@/components/post-card";
 import {
@@ -34,11 +36,7 @@ import type { Page, Post, PostCommentItem } from "@/lib/types";
 
 /**
  * Full post detail — the same full-bleed PostCard with all comments listed
- * below it. This is what you land on from a deep-link or from a notification.
- *
- * On the feed the comment sheet opens as a bottom sheet; here the comments
- * are part of the page scroll so the experience feels intentional rather than
- * accidental.
+ * below it. Comments support long-press edit/delete for the author.
  */
 export default function PostScreen() {
   const { postId } = useLocalSearchParams<{ postId: string }>();
@@ -54,6 +52,14 @@ export default function PostScreen() {
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [shareTo, setShareTo] = useState<string | null>(null);
+
+  // Edit mode
+  const [editingComment, setEditingComment] = useState<PostCommentItem | null>(null);
+  const [editDraft, setEditDraft] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
+
+  const inputRef = useRef<TextInput>(null);
+  const editInputRef = useRef<TextInput>(null);
 
   const load = useCallback(async () => {
     try {
@@ -83,6 +89,7 @@ export default function PostScreen() {
     void loadComments();
   }, [load, loadComments]);
 
+  // ── Post new comment ──────────────────────────────────────────────────────
   async function comment() {
     const content = draft.trim();
     if (!content || sending) return;
@@ -92,6 +99,7 @@ export default function PostScreen() {
       postId: String(postId),
       parentId: null,
       content,
+      editedAt: null,
       createdAt: new Date().toISOString(),
       likeCount: 0,
       viewerLiked: false,
@@ -128,6 +136,97 @@ export default function PostScreen() {
     }
   }
 
+  // ── Edit ──────────────────────────────────────────────────────────────────
+  function startEdit(c: PostCommentItem) {
+    setEditingComment(c);
+    setEditDraft(c.content);
+    setTimeout(() => editInputRef.current?.focus(), 100);
+  }
+
+  function cancelEdit() {
+    setEditingComment(null);
+    setEditDraft("");
+  }
+
+  async function saveEdit() {
+    if (!editingComment || editSaving) return;
+    const content = editDraft.trim();
+    if (!content) return;
+    if (content === editingComment.content) { cancelEdit(); return; }
+
+    setEditSaving(true);
+    const prev = editingComment;
+    setComments((c) =>
+      c.map((item) =>
+        item.id === editingComment.id
+          ? { ...item, content, editedAt: new Date().toISOString() }
+          : item,
+      ),
+    );
+    setEditingComment(null);
+    setEditDraft("");
+
+    try {
+      const res = await api.patch<{ comment: PostCommentItem }>(
+        `/api/posts/${postId}/comments/${prev.id}`,
+        { content },
+      );
+      setComments((c) => c.map((item) => (item.id === prev.id ? res.comment : item)));
+    } catch {
+      setComments((c) => c.map((item) => (item.id === prev.id ? prev : item)));
+    } finally {
+      setEditSaving(false);
+    }
+  }
+
+  // ── Delete ────────────────────────────────────────────────────────────────
+  function confirmDelete(c: PostCommentItem) {
+    Alert.alert(
+      "Delete comment?",
+      "This cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => void doDelete(c),
+        },
+      ],
+    );
+  }
+
+  async function doDelete(c: PostCommentItem) {
+    setComments((prev) => prev.filter((item) => item.id !== c.id));
+    try {
+      await api.delete(`/api/posts/${postId}/comments/${c.id}`);
+      await load(); // refresh comment count
+    } catch {
+      setComments((prev) => {
+        const idx = prev.findIndex((item) => item.createdAt <= c.createdAt);
+        const next = [...prev];
+        next.splice(idx === -1 ? next.length : idx, 0, c);
+        return next;
+      });
+    }
+  }
+
+  // ── Long-press comment menu (owner only) ─────────────────────────────────
+  function handleCommentLongPress(c: PostCommentItem) {
+    if (c.user?.id !== user?.id || c.pending) return;
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    Alert.alert(
+      "Comment",
+      undefined,
+      [
+        { text: "Edit", onPress: () => startEdit(c) },
+        { text: "Delete", style: "destructive", onPress: () => confirmDelete(c) },
+        { text: "Cancel", style: "cancel" },
+      ],
+      { cancelable: true },
+    );
+  }
+
+  // ── Share ────────────────────────────────────────────────────────────────
   async function shareToRider(username: string) {
     setShareTo(null);
     if (username === "__all__") {
@@ -188,6 +287,8 @@ export default function PostScreen() {
     );
   }
 
+  const isEditing = editingComment !== null;
+
   type ListItem =
     | { kind: "post" }
     | { kind: "divider" }
@@ -239,10 +340,16 @@ export default function PostScreen() {
               </T>
             );
           }
-          // comment
+
+          // ── Comment row ──
           const { item: c } = item;
+          const isOwner = !c.pending && c.user?.id === user?.id;
           return (
-            <View style={styles.commentRow}>
+            <Pressable
+              onLongPress={isOwner ? () => handleCommentLongPress(c) : undefined}
+              delayLongPress={350}
+              style={styles.commentRow}
+            >
               <Avatar user={c.user} size={34} />
               <View style={styles.commentBody}>
                 <View
@@ -251,21 +358,62 @@ export default function PostScreen() {
                     { backgroundColor: colors.raised, opacity: c.pending ? 0.6 : 1 },
                   ]}
                 >
-                  <T size={13} weight="700">
-                    {c.user?.displayName ?? "You"}
-                  </T>
-                  <T size={14} style={{ marginTop: 2, lineHeight: 20 }}>
+                  {/* Author + content */}
+                  <Text
+                    style={{ fontSize: 13, lineHeight: 18, color: colors.ink, fontWeight: "400" }}
+                  >
+                    <Text style={{ fontWeight: "700" }}>
+                      {c.user?.displayName ?? "You"}{"  "}
+                    </Text>
                     {c.content}
-                  </T>
+                  </Text>
                 </View>
-                <T size={11} tone="muted" style={{ marginTop: 3, marginLeft: 4 }}>
-                  {relativeTime(c.createdAt)}
-                </T>
+
+                {/* Meta row */}
+                <View style={styles.commentMetaRow}>
+                  <T size={11} tone="muted" style={{ marginLeft: 4 }}>
+                    {relativeTime(c.createdAt)}
+                  </T>
+                  {c.editedAt ? (
+                    <T size={11} tone="muted" style={{ fontStyle: "italic" }}>
+                      · edited
+                    </T>
+                  ) : null}
+                  {isOwner ? (
+                    <Pressable
+                      onPress={() => handleCommentLongPress(c)}
+                      hitSlop={8}
+                      accessibilityLabel="Comment options"
+                    >
+                      <Ionicons name="ellipsis-horizontal" size={14} color={colors.faint} />
+                    </Pressable>
+                  ) : null}
+                </View>
               </View>
-            </View>
+            </Pressable>
           );
         }}
       />
+
+      {/* Edit mode banner */}
+      {isEditing ? (
+        <View
+          style={[
+            styles.editBanner,
+            { backgroundColor: colors.accent + "18", borderTopColor: colors.accent + "30" },
+          ]}
+        >
+          <Ionicons name="pencil" size={13} color={colors.accent} />
+          <T size={12} color={colors.accent} weight="600" style={{ flex: 1 }}>
+            Editing comment
+          </T>
+          <Pressable onPress={cancelEdit} hitSlop={8}>
+            <T size={12} tone="muted">
+              Cancel
+            </T>
+          </Pressable>
+        </View>
+      ) : null}
 
       {/* Comment input fixed at the bottom */}
       <Divider />
@@ -279,36 +427,83 @@ export default function PostScreen() {
         ]}
       >
         <Avatar user={user} size={32} />
-        <TextInput
-          value={draft}
-          onChangeText={setDraft}
-          placeholder="Add a comment…"
-          placeholderTextColor={colors.faint}
-          keyboardAppearance={dark ? "dark" : "light"}
-          multiline
-          maxLength={500}
-          style={[styles.input, { backgroundColor: colors.raised, color: colors.ink }]}
-        />
-        <Pressable
-          onPress={comment}
-          disabled={!draft.trim() || sending}
-          accessibilityRole="button"
-          accessibilityLabel="Post comment"
-          style={[
-            styles.sendBtn,
-            { backgroundColor: draft.trim() && !sending ? colors.accent : colors.raised },
-          ]}
-        >
-          {sending ? (
-            <ActivityIndicator size="small" color={colors.onAccent} />
-          ) : (
-            <Ionicons
-              name="arrow-up"
-              size={18}
-              color={draft.trim() ? colors.onAccent : colors.faint}
+        {isEditing ? (
+          <>
+            <TextInput
+              ref={editInputRef}
+              value={editDraft}
+              onChangeText={setEditDraft}
+              placeholder="Edit your comment…"
+              placeholderTextColor={colors.faint}
+              keyboardAppearance={dark ? "dark" : "light"}
+              multiline
+              maxLength={500}
+              style={[
+                styles.input,
+                {
+                  backgroundColor: colors.raised,
+                  color: colors.ink,
+                  borderWidth: 1.5,
+                  borderColor: colors.accent,
+                },
+              ]}
             />
-          )}
-        </Pressable>
+            <Pressable
+              onPress={() => void saveEdit()}
+              disabled={!editDraft.trim() || editSaving}
+              accessibilityRole="button"
+              accessibilityLabel="Save edit"
+              style={[
+                styles.sendBtn,
+                { backgroundColor: editDraft.trim() && !editSaving ? colors.accent : colors.raised },
+              ]}
+            >
+              {editSaving ? (
+                <ActivityIndicator size="small" color={colors.onAccent} />
+              ) : (
+                <Ionicons
+                  name="checkmark"
+                  size={20}
+                  color={editDraft.trim() ? colors.onAccent : colors.faint}
+                />
+              )}
+            </Pressable>
+          </>
+        ) : (
+          <>
+            <TextInput
+              ref={inputRef}
+              value={draft}
+              onChangeText={setDraft}
+              placeholder="Add a comment…"
+              placeholderTextColor={colors.faint}
+              keyboardAppearance={dark ? "dark" : "light"}
+              multiline
+              maxLength={500}
+              style={[styles.input, { backgroundColor: colors.raised, color: colors.ink }]}
+            />
+            <Pressable
+              onPress={comment}
+              disabled={!draft.trim() || sending}
+              accessibilityRole="button"
+              accessibilityLabel="Post comment"
+              style={[
+                styles.sendBtn,
+                { backgroundColor: draft.trim() && !sending ? colors.accent : colors.raised },
+              ]}
+            >
+              {sending ? (
+                <ActivityIndicator size="small" color={colors.onAccent} />
+              ) : (
+                <Ionicons
+                  name="arrow-up"
+                  size={18}
+                  color={draft.trim() ? colors.onAccent : colors.faint}
+                />
+              )}
+            </Pressable>
+          </>
+        )}
       </View>
 
       <RiderPicker
@@ -348,6 +543,21 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     paddingHorizontal: 12,
     paddingVertical: 8,
+  },
+  commentMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 4,
+    marginLeft: 4,
+  },
+  editBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
   inputRow: {
     flexDirection: "row",

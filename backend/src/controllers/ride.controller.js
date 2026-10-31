@@ -2,6 +2,7 @@
 
 const asyncHandler = require('../utils/asyncHandler');
 const rideService = require('../services/ride.service');
+const rideTracking = require('../services/rideTracking.service');
 const turnService = require('../services/turn.service');
 const notificationService = require('../services/notification.service');
 const { emitToRide, emitToUser } = require('../sockets/emit');
@@ -17,7 +18,10 @@ const listJoinable = asyncHandler(async (req, res) => {
 
 const getRide = asyncHandler(async (req, res) => {
   const { ride, relation } = await rideService.getForViewer(req.params.rideId, req.user.id);
-  res.json({ ride: ride.toJSONSafe(), relation });
+  // Followers may open the ride page, but precise rider coordinates are for the
+  // creator and active participants only.
+  const includeLocations = rideService.canViewLocations(ride, req.user.id);
+  res.json({ ride: ride.toJSONSafe({ includeLocations }), relation });
 });
 
 const join = asyncHandler(async (req, res) => {
@@ -34,12 +38,14 @@ const leave = asyncHandler(async (req, res) => {
   const result = await rideService.leave(req.params.rideId, req.user.id);
   if (result.left) {
     emitToRide(req.params.rideId, 'ride:participant-left', { userId: req.user.id });
+    await rideTracking.riderLeft({ rideId: req.params.rideId, userId: req.user.id });
   }
   res.json(result);
 });
 
 const end = asyncHandler(async (req, res) => {
   const result = await rideService.end(req.params.rideId, req.user.id);
+  rideTracking.clearRide(req.params.rideId);
   emitToRide(req.params.rideId, 'ride:ended', result);
   res.json(result);
 });
@@ -51,6 +57,50 @@ const setVoiceMode = asyncHandler(async (req, res) => {
     req.body.voiceMode,
   );
   emitToRide(req.params.rideId, 'ride:voice-mode', result);
+  res.json(result);
+});
+
+/**
+ * Creator-only position management.
+ *
+ * The service enforces ownership and performs the transfer atomically; this
+ * handler only fans the committed result out and records notifications.
+ */
+const assignPosition = asyncHandler(async (req, res) => {
+  const result = await rideService.assignPosition(req.params.rideId, req.user.id, req.body);
+  await rideTracking.publishPositionChanges({
+    rideId: req.params.rideId,
+    updates: result.updates,
+    actorId: req.user.id,
+  });
+  res.json(result);
+});
+
+const setBoundarySettings = asyncHandler(async (req, res) => {
+  const result = await rideService.setBoundarySettings(req.params.rideId, req.user.id, req.body);
+  emitToRide(req.params.rideId, 'ride:boundary-settings', result);
+  res.json(result);
+});
+
+/** Authenticated location report, tied to the caller's own participant row. */
+const reportLocation = asyncHandler(async (req, res) => {
+  const result = await rideTracking.reportLocation({
+    rideId: req.params.rideId,
+    userId: req.user.id,
+    payload: req.body,
+  });
+  res.json({
+    alerts: result.alerts,
+    clears: result.clears,
+    monitoring: result.status,
+  });
+});
+
+const stopLocationSharing = asyncHandler(async (req, res) => {
+  const result = await rideTracking.stopSharing({
+    rideId: req.params.rideId,
+    userId: req.user.id,
+  });
   res.json(result);
 });
 
@@ -118,6 +168,10 @@ module.exports = {
   leave,
   end,
   setVoiceMode,
+  assignPosition,
+  setBoundarySettings,
+  reportLocation,
+  stopLocationSharing,
   setSignal,
   iceServers,
 };

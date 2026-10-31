@@ -10,6 +10,7 @@ module.exports = (sequelize, DataTypes) => {
       content: { type: DataTypes.TEXT, allowNull: false },
       parentId: { type: DataTypes.UUID, allowNull: true, defaultValue: null },
       likeCount: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+      editedAt: { type: DataTypes.DATE, allowNull: true, defaultValue: null },
     },
     {
       tableName: 'post_comments',

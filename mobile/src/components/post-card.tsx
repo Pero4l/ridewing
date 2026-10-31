@@ -49,7 +49,92 @@ export type PostActions = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Comment bottom sheet — Instagram style
+// CommentRow — single Instagram-style comment with owner actions
+// ─────────────────────────────────────────────────────────────────────────────
+
+function CommentRow({
+  item,
+  isOwner,
+  onEdit,
+  onDelete,
+}: {
+  item: PostCommentItem;
+  isOwner: boolean;
+  onEdit: (c: PostCommentItem) => void;
+  onDelete: (c: PostCommentItem) => void;
+}) {
+  const { colors } = usePalette();
+
+  function handleLongPress() {
+    if (!isOwner) return;
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    Alert.alert(
+      "Comment",
+      undefined,
+      [
+        { text: "Edit", onPress: () => onEdit(item) },
+        { text: "Delete", style: "destructive", onPress: () => onDelete(item) },
+        { text: "Cancel", style: "cancel" },
+      ],
+      { cancelable: true },
+    );
+  }
+
+  return (
+    <Pressable
+      onLongPress={isOwner ? handleLongPress : undefined}
+      delayLongPress={350}
+      style={styles.commentRow}
+      accessibilityLabel={`Comment by ${item.user?.username ?? "rider"}`}
+    >
+      <Avatar user={item.user} size={34} />
+      <View style={styles.commentBubble}>
+        <Text
+          style={{
+            fontSize: 13,
+            lineHeight: 18,
+            color: colors.ink,
+            fontWeight: "400",
+            opacity: item.pending ? 0.55 : 1,
+          }}
+        >
+          <Text style={{ fontWeight: "700" }}>
+            {item.user?.username ?? "rider"}{"  "}
+          </Text>
+          {item.content}
+        </Text>
+        <View style={styles.commentMeta}>
+          <T size={11} tone="muted">
+            {relativeTime(item.createdAt)}
+          </T>
+          {item.editedAt ? (
+            <T size={11} tone="muted" style={{ fontStyle: "italic" }}>
+              · edited
+            </T>
+          ) : null}
+          {item.likeCount > 0 ? (
+            <T size={11} tone="muted">
+              {`${item.likeCount} ${item.likeCount === 1 ? "like" : "likes"}`}
+            </T>
+          ) : null}
+          <T size={11} weight="600" tone="muted">
+            Reply
+          </T>
+        </View>
+      </View>
+      <Pressable hitSlop={10} accessibilityLabel="Like comment">
+        <Ionicons
+          name={item.viewerLiked ? "heart" : "heart-outline"}
+          size={13}
+          color={item.viewerLiked ? "#FF3040" : colors.muted}
+        />
+      </Pressable>
+    </Pressable>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Comment bottom sheet — Instagram style with edit / delete
 // ─────────────────────────────────────────────────────────────────────────────
 
 function CommentSheet({
@@ -69,7 +154,14 @@ function CommentSheet({
   const [loading, setLoading] = useState(false);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+
+  // Edit mode state
+  const [editingComment, setEditingComment] = useState<PostCommentItem | null>(null);
+  const [editDraft, setEditDraft] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
+
   const inputRef = useRef<TextInput>(null);
+  const editInputRef = useRef<TextInput>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -93,9 +185,12 @@ function CommentSheet({
     } else {
       setComments([]);
       setDraft("");
+      setEditingComment(null);
+      setEditDraft("");
     }
   }, [visible, load]);
 
+  // ── Post new comment ──────────────────────────────────────────────────────
   async function send() {
     const content = draft.trim();
     if (!content || sending) return;
@@ -105,6 +200,7 @@ function CommentSheet({
       postId: post.id,
       parentId: null,
       content,
+      editedAt: null,
       createdAt: new Date().toISOString(),
       likeCount: 0,
       viewerLiked: false,
@@ -140,17 +236,99 @@ function CommentSheet({
     }
   }
 
+  // ── Start editing ─────────────────────────────────────────────────────────
+  function startEdit(c: PostCommentItem) {
+    setEditingComment(c);
+    setEditDraft(c.content);
+    setTimeout(() => editInputRef.current?.focus(), 100);
+  }
+
+  function cancelEdit() {
+    setEditingComment(null);
+    setEditDraft("");
+  }
+
+  // ── Save edit ─────────────────────────────────────────────────────────────
+  async function saveEdit() {
+    if (!editingComment || editSaving) return;
+    const content = editDraft.trim();
+    if (!content) return;
+    if (content === editingComment.content) { cancelEdit(); return; }
+
+    setEditSaving(true);
+    // Optimistic update
+    const prev = editingComment;
+    setComments((c) =>
+      c.map((item) =>
+        item.id === editingComment.id
+          ? { ...item, content, editedAt: new Date().toISOString() }
+          : item,
+      ),
+    );
+    setEditingComment(null);
+    setEditDraft("");
+
+    try {
+      const res = await api.patch<{ comment: PostCommentItem }>(
+        `/api/posts/${post.id}/comments/${prev.id}`,
+        { content },
+      );
+      setComments((c) => c.map((item) => (item.id === prev.id ? res.comment : item)));
+    } catch {
+      // Roll back
+      setComments((c) =>
+        c.map((item) => (item.id === prev.id ? prev : item)),
+      );
+    } finally {
+      setEditSaving(false);
+    }
+  }
+
+  // ── Delete ────────────────────────────────────────────────────────────────
+  function confirmDelete(c: PostCommentItem) {
+    Alert.alert(
+      "Delete comment?",
+      "This cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => void doDelete(c),
+        },
+      ],
+    );
+  }
+
+  async function doDelete(c: PostCommentItem) {
+    // Optimistic removal
+    setComments((prev) => prev.filter((item) => item.id !== c.id));
+    try {
+      await api.delete(`/api/posts/${post.id}/comments/${c.id}`);
+    } catch {
+      // Roll back
+      setComments((prev) => {
+        const idx = prev.findIndex((item) => item.createdAt <= c.createdAt);
+        const next = [...prev];
+        next.splice(idx === -1 ? next.length : idx, 0, c);
+        return next;
+      });
+    }
+  }
+
+  const isEditing = editingComment !== null;
+
   return (
     <Modal
       visible={visible}
       animationType="slide"
       transparent
-      onRequestClose={onClose}
+      onRequestClose={isEditing ? cancelEdit : onClose}
       statusBarTranslucent
     >
       <Pressable
         className="flex-1 bg-black/50"
-        onPress={onClose}
+        onPress={isEditing ? cancelEdit : onClose}
         accessibilityLabel="Close comments"
       />
       <KeyboardAvoidingView
@@ -163,18 +341,49 @@ function CommentSheet({
             { backgroundColor: colors.surface, paddingBottom: insets.bottom + 10 },
           ]}
         >
-          {/* Handle — hairline so it reads on light and dark sheets */}
+          {/* Handle */}
           <View style={[styles.handle, { backgroundColor: colors.hairline }]} />
+
+          {/* Header */}
           <View style={styles.sheetHeader}>
             <View style={{ width: 32 }} />
             <T size={15} weight="700">
               Comments
             </T>
-            <Pressable onPress={onClose} hitSlop={12} accessibilityLabel="Close">
-              <Ionicons name="close" size={22} color={colors.muted} />
+            <Pressable
+              onPress={isEditing ? cancelEdit : onClose}
+              hitSlop={12}
+              accessibilityLabel={isEditing ? "Cancel edit" : "Close"}
+            >
+              <Ionicons
+                name={isEditing ? "arrow-back" : "close"}
+                size={22}
+                color={colors.muted}
+              />
             </Pressable>
           </View>
           <Divider />
+
+          {/* Edit mode banner */}
+          {isEditing ? (
+            <View
+              style={[
+                styles.editBanner,
+                { backgroundColor: colors.accent + "18", borderBottomColor: colors.accent + "30" },
+              ]}
+            >
+              <Ionicons name="pencil" size={13} color={colors.accent} />
+              <T size={12} color={colors.accent} weight="600">
+                Editing comment
+              </T>
+              <Pressable onPress={cancelEdit} hitSlop={8}>
+                <T size={12} tone="muted">
+                  Cancel
+                </T>
+              </Pressable>
+            </View>
+          ) : null}
+
           {loading ? (
             <View style={styles.sheetSpinner}>
               <ActivityIndicator color={colors.muted} />
@@ -196,74 +405,108 @@ function CommentSheet({
                 </View>
               }
               renderItem={({ item }) => (
-                <View style={styles.commentRow}>
-                  <Avatar user={item.user} size={34} />
-                  <View style={styles.commentBubble}>
-                    <Text style={{ fontSize: 13, lineHeight: 18, color: colors.ink, fontWeight: "400" }}>
-                      <Text style={{ fontWeight: "700" }}>
-                        {item.user?.username ?? "rider"}  {" "}
-                      </Text>
-                      {item.content}
-                    </Text>
-                    <View style={styles.commentMeta}>
-                      <T size={11} tone="muted">
-                        {relativeTime(item.createdAt)}
-                      </T>
-                      {item.likeCount > 0 ? (
-                        <T size={11} tone="muted">
-                          {`${item.likeCount} ${item.likeCount === 1 ? "like" : "likes"}`}
-                        </T>
-                      ) : null}
-                      <T size={11} weight="600" tone="muted">
-                        Reply
-                      </T>
-                    </View>
-                  </View>
-                  <Pressable hitSlop={10} accessibilityLabel="Like comment">
-                    <Ionicons
-                      name={item.viewerLiked ? "heart" : "heart-outline"}
-                      size={13}
-                      color={item.viewerLiked ? "#FF3040" : colors.muted}
-                    />
-                  </Pressable>
-                </View>
+                <CommentRow
+                  item={item}
+                  isOwner={!item.pending && item.user?.id === user?.id}
+                  onEdit={startEdit}
+                  onDelete={confirmDelete}
+                />
               )}
             />
           )}
+
           <Divider />
+
+          {/* Input row — switches between compose and edit mode */}
           <View style={styles.inputRow}>
             <Avatar user={user} size={36} />
-            <TextInput
-              ref={inputRef}
-              value={draft}
-              onChangeText={setDraft}
-              placeholder={`Add a comment as ${user?.username ?? "rider"}…`}
-              placeholderTextColor={colors.faint}
-              keyboardAppearance={dark ? "dark" : "light"}
-              multiline
-              maxLength={500}
-              style={[styles.commentInput, { color: colors.ink }]}
-              returnKeyType="send"
-              onSubmitEditing={send}
-              blurOnSubmit={false}
-            />
-            <Pressable
-              onPress={send}
-              disabled={!draft.trim() || sending}
-              accessibilityRole="button"
-              accessibilityLabel="Post comment"
-              hitSlop={8}
-            >
-              {sending ? (
-                <ActivityIndicator size="small" color={colors.accent} />
-              ) : (
-                <Ionicons
-                  name="paper-plane-outline"
-                  size={22}
-                  color={draft.trim() ? colors.accent : colors.faint}
+            {isEditing ? (
+              <>
+                <TextInput
+                  ref={editInputRef}
+                  value={editDraft}
+                  onChangeText={setEditDraft}
+                  placeholder="Edit your comment…"
+                  placeholderTextColor={colors.faint}
+                  keyboardAppearance={dark ? "dark" : "light"}
+                  multiline
+                  maxLength={500}
+                  style={[
+                    styles.commentInput,
+                    {
+                      color: colors.ink,
+                      borderWidth: 1.5,
+                      borderColor: colors.accent,
+                      borderRadius: 12,
+                      paddingHorizontal: 10,
+                      paddingVertical: 6,
+                    },
+                  ]}
                 />
-              )}
-            </Pressable>
+                <Pressable
+                  onPress={() => void saveEdit()}
+                  disabled={!editDraft.trim() || editSaving}
+                  accessibilityRole="button"
+                  accessibilityLabel="Save edit"
+                  hitSlop={8}
+                >
+                  {editSaving ? (
+                    <ActivityIndicator size="small" color={colors.accent} />
+                  ) : (
+                    <View
+                      style={[
+                        styles.saveBadge,
+                        {
+                          backgroundColor: editDraft.trim()
+                            ? colors.accent
+                            : colors.raised,
+                        },
+                      ]}
+                    >
+                      <Ionicons
+                        name="checkmark"
+                        size={18}
+                        color={editDraft.trim() ? "#fff" : colors.faint}
+                      />
+                    </View>
+                  )}
+                </Pressable>
+              </>
+            ) : (
+              <>
+                <TextInput
+                  ref={inputRef}
+                  value={draft}
+                  onChangeText={setDraft}
+                  placeholder={`Add a comment as ${user?.username ?? "rider"}…`}
+                  placeholderTextColor={colors.faint}
+                  keyboardAppearance={dark ? "dark" : "light"}
+                  multiline
+                  maxLength={500}
+                  style={[styles.commentInput, { color: colors.ink }]}
+                  returnKeyType="send"
+                  onSubmitEditing={send}
+                  blurOnSubmit={false}
+                />
+                <Pressable
+                  onPress={send}
+                  disabled={!draft.trim() || sending}
+                  accessibilityRole="button"
+                  accessibilityLabel="Post comment"
+                  hitSlop={8}
+                >
+                  {sending ? (
+                    <ActivityIndicator size="small" color={colors.accent} />
+                  ) : (
+                    <Ionicons
+                      name="paper-plane-outline"
+                      size={22}
+                      color={draft.trim() ? colors.accent : colors.faint}
+                    />
+                  )}
+                </Pressable>
+              </>
+            )}
           </View>
         </View>
       </KeyboardAvoidingView>
@@ -957,5 +1200,20 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 14,
     paddingVertical: 8,
+  },
+  editBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  saveBadge: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });

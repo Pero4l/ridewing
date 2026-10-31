@@ -449,6 +449,7 @@ async function listComments(postId, { limit, cursor } = {}, viewerId) {
       postId: row.postId,
       parentId: row.parentId ?? null,
       content: row.content,
+      editedAt: row.editedAt ? row.editedAt.toISOString() : null,
       createdAt: row.createdAt.toISOString(),
       likeCount: row.likeCount,
       viewerLiked: likedSet.has(row.id),
@@ -530,6 +531,7 @@ async function addComment(postId, userId, rawContent, parentId) {
         postId: comment.postId,
         parentId: comment.parentId ?? null,
         content: comment.content,
+        editedAt: null,
         createdAt: comment.createdAt.toISOString(),
         likeCount: 0,
         viewerLiked: false,
@@ -675,6 +677,48 @@ async function remove(postId, userId) {
   return { deleted: true };
 }
 
+async function editComment(commentId, userId, rawContent) {
+  const content = String(rawContent ?? '').trim();
+  if (!content) throw ApiError.badRequest('Comment cannot be empty');
+  if (content.length > 1000) throw ApiError.badRequest('Comment cannot exceed 1000 characters');
+
+  const comment = await PostComment.findByPk(commentId, {
+    include: [{ model: User, as: 'user' }],
+  });
+  if (!comment) throw ApiError.notFound('Comment not found');
+  if (comment.userId !== userId) throw ApiError.forbidden('You can only edit your own comments');
+
+  comment.content = content;
+  comment.editedAt = new Date();
+  await comment.save();
+
+  return {
+    comment: {
+      id: comment.id,
+      postId: comment.postId,
+      parentId: comment.parentId ?? null,
+      content: comment.content,
+      editedAt: comment.editedAt.toISOString(),
+      createdAt: comment.createdAt.toISOString(),
+      likeCount: comment.likeCount,
+      viewerLiked: false,
+      user: comment.user ? comment.user.toPublicJSON() : null,
+    },
+  };
+}
+
+async function deleteComment(commentId, userId) {
+  return sequelize.transaction(async (transaction) => {
+    const comment = await PostComment.findByPk(commentId, { transaction });
+    if (!comment) throw ApiError.notFound('Comment not found');
+    if (comment.userId !== userId) throw ApiError.forbidden('You can only delete your own comments');
+
+    await comment.destroy({ transaction });
+    await Post.decrement('commentCount', { by: 1, where: { id: comment.postId }, transaction });
+    return { deleted: true };
+  });
+}
+
 /**
  * A rider's profile collections: posts they wrote, posts they shared (reposts),
  * and posts that tag them (@username in the text).
@@ -806,6 +850,8 @@ module.exports = {
   unlikeComment,
   listComments,
   addComment,
+  editComment,
+  deleteComment,
   share,
   shareToFriend,
   repost,

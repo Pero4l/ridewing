@@ -106,6 +106,16 @@ const remove = asyncHandler(async (req, res) => {
   res.json(result);
 });
 
+const editComment = asyncHandler(async (req, res) => {
+  const { comment } = await postService.editComment(req.params.commentId, req.user.id, req.body.content);
+  res.json({ comment });
+});
+
+const deleteComment = asyncHandler(async (req, res) => {
+  const result = await postService.deleteComment(req.params.commentId, req.user.id);
+  res.json(result);
+});
+
 module.exports = {
   create,
   update,
@@ -118,6 +128,8 @@ module.exports = {
   unlikeComment,
   listComments,
   addComment,
+  editComment,
+  deleteComment,
   share,
   shareToFriend,
   repost,

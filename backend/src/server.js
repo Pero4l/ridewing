@@ -17,6 +17,7 @@ const { sequelize } = require('./models');
 const { createSocketServer } = require('./sockets');
 const tokenService = require('./services/token.service');
 const rideService = require('./services/ride.service');
+const rideTracking = require('./services/rideTracking.service');
 const { emitToRide } = require('./sockets/emit');
 
 const server = http.createServer(app);
@@ -35,7 +36,10 @@ async function sweepIdleRides() {
   try {
     const ended = await rideService.expireIdleRides();
     if (!ended.length) return;
-    ended.forEach((result) => emitToRide(result.id, 'ride:ended', result));
+    ended.forEach((result) => {
+      rideTracking.clearRide(result.id);
+      emitToRide(result.id, 'ride:ended', result);
+    });
     logger.info({ count: ended.length }, 'ended idle rides');
   } catch (error) {
     logger.warn({ err: error }, 'idle ride sweep failed');

@@ -147,6 +147,22 @@ function buildPushPayload(notification) {
         ? `${actor} shared a post with you`
         : `${actor} sent you a message`;
       break;
+    case 'ride_position': {
+      const role = typeof data.position === 'string'
+        ? data.position.toLowerCase().replaceAll('_', ' ')
+        : 'updated';
+      copy.title = `Your ride position is now ${role}`;
+      copy.body = 'Open RideWing to see the group.';
+      break;
+    }
+    case 'ride_boundary':
+      copy.title = data.zone === 'behind'
+        ? `${actor} is behind the Sweeper`
+        : `${actor} is ahead of the Lead Rider`;
+      copy.body = 'Open RideWing to see the group.';
+      copy.tag = `ride-boundary-${data.rideId ?? entityId}`;
+      copy.renotify = true;
+      break;
     case 'support_ticket': copy.title = 'Your support ticket was resolved'; break;
     case 'mention':
       copy.title = `${actor} mentioned you`;
@@ -253,6 +269,22 @@ function buildEmailPayload(notification) {
       subject = 'Your support ticket was resolved';
       preview = `A member of the RideWing team resolved your support ticket${data.subject ? ` "${data.subject}"` : ''}.`;
       button = { href: `${frontend}/app/support`, label: 'View ticket' };
+      break;
+    case 'ride_position': {
+      const role = typeof data.position === 'string'
+        ? data.position.toLowerCase().replaceAll('_', ' ')
+        : 'updated';
+      subject = `Your ride position is now ${role}`;
+      preview = `${actorName} assigned you the ${role} position on a ride.`;
+      button = { href: `${frontend}/app/rides/${entityId ?? ''}`, label: 'Open ride' };
+      break;
+    }
+    case 'ride_boundary':
+      subject = data.zone === 'behind'
+        ? `${actorName} is behind the Sweeper`
+        : `${actorName} is ahead of the Lead Rider`;
+      preview = `${actorName} has moved outside the group formation. Open the ride to see the live map.`;
+      button = { href: `${frontend}/app/rides/${entityId ?? ''}`, label: 'Open ride' };
       break;
     case 'mention': {
       const postId = data.postId;

@@ -401,7 +401,6 @@ export async function verifyEmail(code: string) {
   return request<{ verified: boolean }>("/api/auth/verify-email", {
     method: "POST",
     body: { code },
-    skipAuth: true,
   });
 }
 /** Cheap reachability probe used by Settings and the sign-in screen. */

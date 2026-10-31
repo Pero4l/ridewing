@@ -5,6 +5,10 @@
  *
  * `voiceMode` is the session default that clients apply when joining;
  * per-rider mute state is ephemeral and deliberately kept in memory, not here.
+ *
+ * The forward/rear boundary thresholds are per-ride so a tight city group and a
+ * spread-out motorway group can both use the same monitoring code without
+ * hard-coded magic numbers.
  */
 module.exports = (sequelize, DataTypes) => {
   const RideSession = sequelize.define(
@@ -35,6 +39,10 @@ module.exports = (sequelize, DataTypes) => {
       // Last moment of rider activity; the idle sweeper ends rides that have
       // been quiet for the threshold. Every ride action pokes this forward.
       lastActivityAt: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
+      // Metres beyond the Lead Rider / behind the Sweeper before a boundary is
+      // considered violated. Kept configurable rather than repeated in code.
+      forwardBoundaryM: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 500 },
+      rearBoundaryM: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 800 },
     },
     {
       tableName: 'ride_sessions',
@@ -51,7 +59,7 @@ module.exports = (sequelize, DataTypes) => {
     RideSession.hasMany(db.RideParticipant, { foreignKey: 'rideSessionId', as: 'participants' });
   };
 
-  RideSession.prototype.toJSONSafe = function toJSONSafe() {
+  RideSession.prototype.toJSONSafe = function toJSONSafe({ includeLocations = true } = {}) {
     return {
       id: this.id,
       name: this.name,
@@ -60,11 +68,13 @@ module.exports = (sequelize, DataTypes) => {
       inviteCode: this.inviteCode,
       maxParticipants: this.maxParticipants,
       creatorId: this.creatorId,
+      forwardBoundaryM: this.forwardBoundaryM,
+      rearBoundaryM: this.rearBoundaryM,
       creator: this.creator ? this.creator.toPublicJSON() : undefined,
       createdAt: this.createdAt,
       endedAt: this.endedAt,
       participants: this.participants
-        ? this.participants.map((participant) => participant.toJSONSafe())
+        ? this.participants.map((participant) => participant.toJSONSafe({ includeLocation: includeLocations }))
         : undefined,
     };
   };

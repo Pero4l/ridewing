@@ -13,8 +13,9 @@ module.exports = (sequelize, DataTypes) => {
       type: {
         // Kept in step with the Postgres enum, which grows in migrations
         // 01700 (post_like, post_comment, post_share), 01900 (comment_reply),
-        // 02500 (support_ticket), 02800 (ride_signal) and
-        // 20261002140641 (comment_like).
+        // 02500 (support_ticket), 02800 (ride_signal),
+        // 20261002140641 (comment_like) and
+        // 20261026000000 (ride_position, ride_boundary).
         //
         // This list was drifting: `comment_like` was added to the Postgres enum
         // and written by post.service, but never here. On Postgres it happened
@@ -37,6 +38,8 @@ module.exports = (sequelize, DataTypes) => {
           'comment_like',
           'support_ticket',
           'ride_signal',
+          'ride_position',
+          'ride_boundary',
           'mention',
         ),
         allowNull: false,

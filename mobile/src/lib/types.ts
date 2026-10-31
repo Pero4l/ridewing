@@ -277,6 +277,7 @@ export type PostCommentItem = {
   postId: string;
   parentId: string | null;
   content: string;
+  editedAt: string | null;
   createdAt: string;
   likeCount: number;
   viewerLiked: boolean;

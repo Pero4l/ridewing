@@ -19,10 +19,15 @@ const { z } = require('zod');
 const logger = require('../config/logger');
 const TokenBucket = require('../utils/TokenBucket');
 const rideService = require('../services/ride.service');
+const rideTracking = require('../services/rideTracking.service');
+const rideValidator = require('../validators/ride.validator');
 const { rideRoom } = require('./rooms');
 const { toAckError } = require('./chat.handlers');
 
 const rideSchema = z.object({ rideId: z.string().uuid() }).strict();
+const locationSchema = rideValidator.reportLocation
+  .extend({ rideId: z.string().uuid() })
+  .strict();
 
 /** Per-socket throttle so live traffic does not hit the DB every signal. */
 const activityTouch = new Map();
@@ -81,6 +86,9 @@ module.exports = function registerRideHandlers(io, socket) {
   // Signaling is bursty during connection setup, then quiet.
   const signalBucket = new TokenBucket({ capacity: 120, refillPerSecond: 40 });
   const voiceStateBucket = new TokenBucket({ capacity: 20, refillPerSecond: 10 });
+  // A fix roughly every two seconds is plenty for a group map; bursts cover a
+  // reconnect while still bounding a client that tries to flood the room.
+  const locationBucket = new TokenBucket({ capacity: 8, refillPerSecond: 0.5 });
 
   /** Sockets currently in the ride room, as peer descriptors for the client. */
   async function peersIn(rideId, excludeSocketId) {
@@ -147,14 +155,90 @@ module.exports = function registerRideHandlers(io, socket) {
     }
   });
 
+  /**
+   * Watches a ride without joining the WebRTC mesh.
+   *
+   * The live map should work for a rider who has not opened voice. This joins
+   * the same authenticated room, but records a separate membership so a map
+   * tab closing does not release the participant row on disconnect.
+   */
+  socket.on('ride:watch', async (payload, ack) => {
+    const reply = respond(ack);
+    try {
+      const { rideId } = rideSchema.parse(payload);
+      const allowed = await rideService.isActiveParticipant(rideId, userId);
+      if (!allowed) {
+        return reply({
+          ok: false,
+          error: { message: 'You have not joined this ride', code: 'NOT_A_PARTICIPANT' },
+        });
+      }
+
+      await socket.join(rideRoom(rideId));
+      socket.data.watchRides.add(rideId);
+      touchRideActivity(socket.id, rideId);
+      return reply({ ok: true, rideId });
+    } catch (error) {
+      return reply(toAckError(error));
+    }
+  });
+
+  socket.on('ride:unwatch', async (payload, ack) => {
+    const reply = respond(ack);
+    try {
+      const { rideId } = rideSchema.parse(payload);
+      socket.data.watchRides.delete(rideId);
+      if (!socket.data.rides.has(rideId)) {
+        await socket.leave(rideRoom(rideId));
+      }
+      return reply({ ok: true });
+    } catch (error) {
+      return reply(toAckError(error));
+    }
+  });
+
   function leaveRide(rideId) {
     if (!socket.data.rides.has(rideId)) return;
     socket.data.rides.delete(rideId);
     touchRideActivity(socket.id, rideId);
-    return socket.leave(rideRoom(rideId)).then(() => {
-      socket.to(rideRoom(rideId)).emit('ride:peer-left', { rideId, socketId: socket.id, userId });
-    });
+
+    // Voice peers are torn down either way, but a rider who is still watching
+    // the map must stay in the room to keep receiving position updates.
+    socket.to(rideRoom(rideId)).emit('ride:peer-left', { rideId, socketId: socket.id, userId });
+    if (socket.data.watchRides?.has(rideId)) return Promise.resolve();
+    return socket.leave(rideRoom(rideId));
   }
+
+  /**
+   * Live location report from the authenticated rider.
+   *
+   * The room membership is the authorisation check; the user id comes from the
+   * socket, never the payload. Rate limiting here is per socket so one tab
+   * cannot flood the ride, and the service validates freshness/plausibility.
+   */
+  socket.on('ride:location', async (payload, ack) => {
+    const reply = respond(ack);
+    try {
+      if (!locationBucket.tryRemove()) {
+        return reply({ ok: false, error: { message: 'Location updates are too frequent' } });
+      }
+
+      const { rideId, ...location } = locationSchema.parse(payload);
+      if (!socket.rooms.has(rideRoom(rideId))) {
+        return reply({ ok: false, error: { message: 'You are not watching this ride' } });
+      }
+
+      const result = await rideTracking.reportLocation({ rideId, userId, payload: location });
+      touchRideActivity(socket.id, rideId);
+      return reply({
+        ok: true,
+        alerts: result.alerts.length,
+        clears: result.clears.length,
+      });
+    } catch (error) {
+      return reply(toAckError(error));
+    }
+  });
 
   /** Relays an SDP offer or answer to one peer in the same ride. */
   socket.on('webrtc:signal', async (payload, ack) => {
@@ -247,9 +331,11 @@ module.exports = function registerRideHandlers(io, socket) {
 
   /** On disconnect, tell every ride this socket was in so peers can tear down. */
   socket.on('disconnecting', async () => {
-    const rides = [...socket.data.rides];
+    const voiceRides = [...socket.data.rides];
+    const watchRides = [...(socket.data.watchRides ?? [])];
+    const allRides = [...new Set([...voiceRides, ...watchRides])];
 
-    for (const rideId of rides) {
+    for (const rideId of voiceRides) {
       socket.to(rideRoom(rideId)).emit('ride:peer-left', {
         rideId,
         socketId: socket.id,
@@ -260,18 +346,31 @@ module.exports = function registerRideHandlers(io, socket) {
     // The throttle map is process-lifetime, so it must not outlive the socket.
     activityTouch.delete(socket.id);
 
-    // A crashed tab or a sleeping phone never sends `ride:leave`, which would
-    // leave a `joined` participant row holding a ride slot until the ride ends.
-    // Only release the row when this rider has no other tab still in the ride —
-    // two tabs are two peers, and closing one must not eject the rider.
     await Promise.all(
-      rides.map(async (rideId) => {
+      allRides.map(async (rideId) => {
         try {
           const room = await io.in(rideRoom(rideId)).fetchSockets();
           const stillHere = room.some(
             (peer) => peer.id !== socket.id && peer.data?.userId === userId,
           );
-          if (!stillHere) await rideService.leave(rideId, userId);
+          if (stillHere) return;
+
+          // A map watcher only loses their feed. A voice participant also gives
+          // up their ride slot, as before. Both cases are announced so the map
+          // can mark the last fix as stale immediately rather than waiting for
+          // the freshness clock.
+          if (watchRides.includes(rideId) && !voiceRides.includes(rideId)) {
+            await rideService.markLocationOffline(rideId, userId).catch(() => {});
+          } else {
+            await rideService.leave(rideId, userId);
+          }
+
+          socket.to(rideRoom(rideId)).emit('ride:rider-offline', {
+            rideId,
+            userId,
+            at: new Date().toISOString(),
+            removed: false,
+          });
         } catch (error) {
           logger.warn({ err: error, rideId, userId }, 'failed to release participant on disconnect');
         }

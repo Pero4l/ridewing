@@ -162,13 +162,35 @@ export type ConversationListItem = {
   lastReadAt: string | null;
 };
 
+export type RidePosition =
+  | "LEAD_RIDER"
+  | "ASSISTANT_ROAD_CAPTAIN"
+  | "ROAD_MARSHAL"
+  | "SWEEPER"
+  | "NAVIGATION_OFFICER"
+  | "SAFETY_OFFICER"
+  | "SUPPORT_RECOVERY_RIDER"
+  | "FORMATION_RIDER";
+
+export type RideLocation = {
+  latitude: number;
+  longitude: number;
+  accuracy: number | null;
+  heading: number | null;
+  routeProgress: number | null;
+  updatedAt: string;
+};
+
 export type RideParticipant = {
   userId: string;
   status: "joined" | "left";
+  position: RidePosition;
   joinedAt: string;
   leftAt: string | null;
   helpRequestedAt: string | null;
   stoppedAt: string | null;
+  locationSharing: boolean;
+  location: RideLocation | null;
   user: PublicUser | null;
 };
 
@@ -189,6 +211,8 @@ export type Ride = {
   maxParticipants: number;
   creatorId: string;
   creator?: PublicUser;
+  forwardBoundaryM: number;
+  rearBoundaryM: number;
   createdAt: string;
   endedAt: string | null;
   participants?: RideParticipant[];

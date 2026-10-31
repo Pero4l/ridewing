@@ -3,6 +3,9 @@
 const { z } = require('zod');
 const { uuid } = require('./common.validator');
 const env = require('../config/env');
+const { RIDE_POSITIONS } = require('../utils/ridePositions');
+
+const boundaryMeters = z.coerce.number().int().min(100).max(5000);
 
 const create = z
   .object({
@@ -14,6 +17,8 @@ const create = z
       .min(2)
       .max(env.limits.maxRideParticipants)
       .optional(),
+    forwardBoundaryM: boundaryMeters.optional(),
+    rearBoundaryM: boundaryMeters.optional(),
   })
   .strict();
 
@@ -33,4 +38,41 @@ const setSignal = z
   })
   .strict();
 
-module.exports = { create, rideParam, joinByCode, setVoiceMode, setSignal };
+const assignPosition = z
+  .object({
+    userId: uuid,
+    position: z.enum(RIDE_POSITIONS),
+    // Only meaningful when transferring LEAD_RIDER; defaults to FORMATION_RIDER.
+    replacementPosition: z.enum(RIDE_POSITIONS).optional(),
+  })
+  .strict();
+
+const setBoundarySettings = z
+  .object({
+    forwardBoundaryM: boundaryMeters,
+    rearBoundaryM: boundaryMeters,
+  })
+  .strict();
+
+const reportLocation = z
+  .object({
+    latitude: z.number().finite().min(-90).max(90),
+    longitude: z.number().finite().min(-180).max(180),
+    accuracy: z.number().finite().min(0).max(5000).nullable().optional(),
+    heading: z.number().finite().min(0).max(360).nullable().optional(),
+    // 0..1 along a planned route, supplied only when the client has geometry.
+    routeProgress: z.number().finite().min(0).max(1).nullable().optional(),
+    timestamp: z.string().datetime({ offset: true }).optional(),
+  })
+  .strict();
+
+module.exports = {
+  create,
+  rideParam,
+  joinByCode,
+  setVoiceMode,
+  setSignal,
+  assignPosition,
+  setBoundarySettings,
+  reportLocation,
+};

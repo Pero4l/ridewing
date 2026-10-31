@@ -34,6 +34,12 @@ const comment = z
   })
   .strict();
 
+const editComment = z
+  .object({
+    content: z.string().trim().min(1, 'Comment cannot be empty').max(1000),
+  })
+  .strict();
+
 const feedParams = pagination;
 const idParams = z.object({ id: z.string().uuid('Must be a valid post id') }).strict();
 const commentIdParams = z.object({ id: z.string().uuid('Must be a valid post id'), commentId: z.string().uuid('Must be a valid comment id') }).strict();
@@ -43,4 +49,4 @@ const commentIdParams = z.object({ id: z.string().uuid('Must be a valid post id'
 // keep the whole share to a single request.
 const shareTo = z.object({ username }).strict();
 
-module.exports = { create, edit, comment, feedParams, idParams, commentIdParams, shareTo };
+module.exports = { create, edit, comment, editComment, feedParams, idParams, commentIdParams, shareTo };

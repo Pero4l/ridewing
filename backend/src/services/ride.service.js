@@ -14,6 +14,13 @@ const env = require('../config/env');
 const { RideSession, RideParticipant, Follow, CommunityMember, Community, User, sequelize } = require('../models');
 const ApiError = require('../utils/ApiError');
 const { inviteCode } = require('../utils/slug');
+const {
+  DEFAULT_RIDE_POSITION,
+  LEAD_RIDER,
+  assertCanManagePositions,
+  planPositionAssignments,
+} = require('../utils/ridePositions');
+const { isPlausibleMovement, locationOf } = require('../utils/rideBoundary');
 const emailService = require('./email.service');
 
 const ACTIVE_INCLUDE = [
@@ -41,7 +48,13 @@ async function allocateInviteCode(transaction) {
 }
 
 /** Creates a ride and enrols the creator as its first participant. */
-async function create(creatorId, { name, voiceMode = 'ptt', maxParticipants } = {}) {
+async function create(creatorId, {
+  name,
+  voiceMode = 'ptt',
+  maxParticipants,
+  forwardBoundaryM,
+  rearBoundaryM,
+} = {}) {
   const cap = Math.min(
     Math.max(Number(maxParticipants) || env.limits.maxRideParticipants, 2),
     env.limits.maxRideParticipants,
@@ -57,13 +70,23 @@ async function create(creatorId, { name, voiceMode = 'ptt', maxParticipants } = 
         voiceMode,
         inviteCode: code,
         maxParticipants: cap,
+        forwardBoundaryM: forwardBoundaryM ?? 500,
+        rearBoundaryM: rearBoundaryM ?? 800,
         lastActivityAt: new Date(),
       },
       { transaction },
     );
 
     await RideParticipant.create(
-      { rideSessionId: created.id, userId: creatorId, status: 'joined' },
+      {
+        rideSessionId: created.id,
+        userId: creatorId,
+        status: 'joined',
+        // The creator leads the group from the moment the ride exists. This is
+        // inside the same transaction as the ride row, so a failed create cannot
+        // leave an owner without a Lead Rider.
+        position: LEAD_RIDER,
+      },
       { transaction },
     );
 
@@ -157,16 +180,39 @@ async function join({ rideId, code }, userId) {
       );
     }
 
+    // Normally the creator is already the lead. If a legacy ride has no lead,
+    // the creator rejoining restores one instead of leaving the group without a
+    // forward boundary.
+    const leadExists = await RideParticipant.count({
+      where: { rideSessionId: ride.id, status: 'joined', position: LEAD_RIDER },
+      transaction,
+    });
+    const position = !leadExists && ride.creatorId === userId ? LEAD_RIDER : DEFAULT_RIDE_POSITION;
+
     if (existing) {
       await existing.update(
-        { status: 'joined', joinedAt: new Date(), leftAt: null },
+        {
+          status: 'joined',
+          joinedAt: new Date(),
+          leftAt: null,
+          ...(position === LEAD_RIDER ? { position: LEAD_RIDER } : {}),
+          // A rejoining rider starts with location sharing off until they grant
+          // permission again.
+          locationSharing: false,
+          latitude: null,
+          longitude: null,
+          locationAccuracy: null,
+          locationHeading: null,
+          routeProgress: null,
+          locationUpdatedAt: null,
+        },
         { transaction },
       );
       return { rideId: ride.id, rejoined: true };
     }
 
     await RideParticipant.create(
-      { rideSessionId: ride.id, userId, status: 'joined' },
+      { rideSessionId: ride.id, userId, status: 'joined', position },
       { transaction },
     );
     return { rideId: ride.id, rejoined: false };
@@ -177,7 +223,19 @@ async function join({ rideId, code }, userId) {
 
 async function leave(rideId, userId) {
   const [updated] = await RideParticipant.update(
-    { status: 'left', leftAt: new Date() },
+    {
+      status: 'left',
+      leftAt: new Date(),
+      // Leaving ends that rider's sharing. Clearing the coordinates too means a
+      // departed rider is not left on the map as an unexplained marker.
+      locationSharing: false,
+      latitude: null,
+      longitude: null,
+      locationAccuracy: null,
+      locationHeading: null,
+      routeProgress: null,
+      locationUpdatedAt: null,
+    },
     { where: { rideSessionId: rideId, userId, status: 'joined' } },
   );
   if (updated > 0) await touchActivity(rideId);
@@ -228,7 +286,17 @@ async function expireIdleRides(now = new Date()) {
       const endedAt = new Date();
       await locked.update({ status: 'ended', endedAt }, { transaction });
       await RideParticipant.update(
-        { status: 'left', leftAt: endedAt },
+        {
+          status: 'left',
+          leftAt: endedAt,
+          locationSharing: false,
+          latitude: null,
+          longitude: null,
+          locationAccuracy: null,
+          locationHeading: null,
+          routeProgress: null,
+          locationUpdatedAt: null,
+        },
         { where: { rideSessionId: ride.id, status: 'joined' }, transaction },
       );
       ended.push({ id: ride.id, status: 'ended', endedAt: endedAt.toISOString(), reason: 'inactive' });
@@ -253,7 +321,17 @@ async function end(rideId, actorId) {
     const endedAt = new Date();
     await ride.update({ status: 'ended', endedAt }, { transaction });
     await RideParticipant.update(
-      { status: 'left', leftAt: endedAt },
+      {
+        status: 'left',
+        leftAt: endedAt,
+        locationSharing: false,
+        latitude: null,
+        longitude: null,
+        locationAccuracy: null,
+        locationHeading: null,
+        routeProgress: null,
+        locationUpdatedAt: null,
+      },
       { where: { rideSessionId: ride.id, status: 'joined' }, transaction },
     );
 
@@ -261,7 +339,189 @@ async function end(rideId, actorId) {
   });
 }
 
-/** Switches between push-to-talk and open talk for everyone. Creator only. */
+/**
+ * Assigns, changes, revokes or transfers a rider position.
+ *
+ * Creator-only, enforced here rather than only in the UI. The ride row is locked
+ * so two concurrent assignments cannot interleave; the whole plan (including
+ * demoting the previous lead or sweeper) is applied in one transaction. The
+ * creator keeps ownership: only `position` changes, never `creatorId`.
+ */
+async function assignPosition(rideId, actorId, { userId, position, replacementPosition = null }) {
+  return sequelize.transaction(async (transaction) => {
+    const ride = await RideSession.findByPk(rideId, {
+      transaction,
+      lock: transaction.LOCK.UPDATE,
+    });
+    if (!ride) throw ApiError.notFound('Ride not found');
+    assertCanManagePositions(ride, actorId);
+    if (ride.status !== 'active') throw ApiError.conflict('That ride has already ended');
+
+    const participants = await RideParticipant.findAll({
+      where: { rideSessionId: rideId, status: 'joined' },
+      attributes: ['id', 'userId', 'status', 'position'],
+      transaction,
+      lock: transaction.LOCK.UPDATE,
+    });
+
+    const plan = planPositionAssignments({
+      participants: participants.map((participant) => participant.get({ plain: true })),
+      targetUserId: userId,
+      position,
+      replacementPosition,
+    });
+
+    for (const update of plan.updates) {
+      const participant = participants.find((row) => row.userId === update.userId);
+      if (participant) await participant.update({ position: update.to }, { transaction });
+    }
+
+    await ride.update({ lastActivityAt: new Date() }, { transaction });
+
+    return {
+      rideId,
+      updates: plan.updates,
+      previousLeadUserId: plan.previousLeadUserId,
+      leadUserId: plan.leadUserId,
+      noop: plan.noop,
+    };
+  });
+}
+
+/** Creator-only forward/rear boundary thresholds. */
+async function setBoundarySettings(rideId, actorId, { forwardBoundaryM, rearBoundaryM }) {
+  const ride = await RideSession.findByPk(rideId);
+  if (!ride) throw ApiError.notFound('Ride not found');
+  assertCanManagePositions(ride, actorId);
+  if (ride.status !== 'active') throw ApiError.conflict('That ride has already ended');
+
+  await ride.update({ forwardBoundaryM, rearBoundaryM, lastActivityAt: new Date() });
+  return {
+    rideId,
+    forwardBoundaryM: ride.forwardBoundaryM,
+    rearBoundaryM: ride.rearBoundaryM,
+  };
+}
+
+/**
+ * Stores one authenticated rider's current location.
+ *
+ * The user id comes from the verified token, never from the payload, so a rider
+ * cannot report a location as somebody else. Timestamps are validated for
+ * currency and implausible jumps are rejected before they can influence a
+ * boundary decision.
+ */
+async function updateParticipantLocation(rideId, userId, payload) {
+  const participant = await RideParticipant.findOne({
+    where: { rideSessionId: rideId, userId, status: 'joined' },
+    include: [{ model: RideSession, as: 'rideSession', attributes: ['id', 'status'] }],
+  });
+  if (!participant) throw ApiError.notFound('You are not on this ride');
+  if (participant.rideSession.status !== 'active') {
+    throw ApiError.conflict('That ride has already ended');
+  }
+
+  const now = new Date();
+  if (payload.timestamp) {
+    const reportedAt = new Date(payload.timestamp);
+    if (Number.isNaN(reportedAt.getTime())) {
+      throw ApiError.badRequest('Invalid location timestamp');
+    }
+    const age = now.getTime() - reportedAt.getTime();
+    // A small future tolerance covers device clock skew; anything older than
+    // two minutes is a queued update that must not be mistaken for "now".
+    if (age > 2 * 60 * 1000 || age < -60 * 1000) {
+      throw ApiError.badRequest('Location timestamp is not current');
+    }
+  }
+
+  const previous = locationOf(participant);
+  const next = {
+    latitude: Number(payload.latitude),
+    longitude: Number(payload.longitude),
+    accuracy: payload.accuracy ?? null,
+    heading: payload.heading ?? null,
+    routeProgress: payload.routeProgress ?? null,
+    updatedAt: now,
+  };
+
+  if (!isPlausibleMovement(previous, next)) {
+    throw ApiError.badRequest('Location jump rejected as implausible', {
+      code: 'IMPLAUSIBLE_LOCATION',
+    });
+  }
+
+  await participant.update({
+    latitude: next.latitude,
+    longitude: next.longitude,
+    locationAccuracy: next.accuracy,
+    locationHeading: next.heading,
+    routeProgress: next.routeProgress,
+    // Server receipt time is the freshness clock. A client clock cannot make a
+    // stale fix look current or a current fix look stale.
+    locationUpdatedAt: now,
+    locationSharing: true,
+  });
+
+  await touchActivity(rideId);
+  return { participant, rideSession: participant.rideSession };
+}
+
+/**
+ * Stops sharing and removes the coordinates immediately.
+ *
+ * Used when a rider switches sharing off or leaves. Keeping the last point would
+ * leave a marker on everyone else's map that the rider has explicitly withdrawn.
+ */
+async function stopLocationSharing(rideId, userId) {
+  const [updated] = await RideParticipant.update(
+    {
+      locationSharing: false,
+      latitude: null,
+      longitude: null,
+      locationAccuracy: null,
+      locationHeading: null,
+      routeProgress: null,
+      locationUpdatedAt: null,
+    },
+    { where: { rideSessionId: rideId, userId, status: 'joined' } },
+  );
+  return { stopped: updated > 0 };
+}
+
+/**
+ * Marks a rider's feed offline without deleting the last fix.
+ *
+ * A dropped socket is not the same as withdrawing sharing: the last known point
+ * stays visible but is flagged stale by the client, so the group can see where
+ * they were rather than losing them entirely.
+ */
+async function markLocationOffline(rideId, userId) {
+  const [updated] = await RideParticipant.update(
+    { locationSharing: false },
+    { where: { rideSessionId: rideId, userId, status: 'joined' } },
+  );
+  return { offline: updated > 0 };
+}
+
+/**
+ * Whether the viewer may see precise coordinates. Following a ride is enough to
+ * see its roster, but not enough to track where individual riders are.
+ */
+function canViewLocations(ride, viewerId) {
+  if (!ride || !viewerId) return false;
+  if (ride.creatorId === viewerId) return true;
+  return Boolean(
+    ride.participants?.some(
+      (participant) => participant.userId === viewerId && participant.status === 'joined',
+    ),
+  );
+}
+
+
+/**
+ * Switches between push-to-talk and open talk for everyone. Creator only.
+ */
 async function setVoiceMode(rideId, actorId, voiceMode) {
   if (!['ptt', 'open'].includes(voiceMode)) {
     throw ApiError.badRequest('Voice mode must be "ptt" or "open"');
@@ -418,6 +678,7 @@ module.exports = {
   getById,
   getByInviteCode,
   getForViewer,
+  canViewLocations,
   isActiveParticipant,
   join,
   leave,
@@ -425,6 +686,11 @@ module.exports = {
   expireIdleRides,
   end,
   setVoiceMode,
+  assignPosition,
+  setBoundarySettings,
+  updateParticipantLocation,
+  stopLocationSharing,
+  markLocationOffline,
   listJoinable,
   activeParticipantIds,
   setSignal,

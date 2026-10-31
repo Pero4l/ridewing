@@ -40,6 +40,9 @@ router.post('/:id/comments', writeLimiter, validate({ params: postValidator.idPa
 router.post('/:id/comments/:commentId/like', writeLimiter, validate({ params: postValidator.commentIdParams }), postController.likeComment);
 router.delete('/:id/comments/:commentId/like', validate({ params: postValidator.commentIdParams }), postController.unlikeComment);
 
+router.patch('/:id/comments/:commentId', writeLimiter, validate({ params: postValidator.commentIdParams, body: postValidator.editComment }), postController.editComment);
+router.delete('/:id/comments/:commentId', validate({ params: postValidator.commentIdParams }), postController.deleteComment);
+
 router.post('/:id/share', writeLimiter, validate({ params: postValidator.idParams }), postController.share);
 router.post(
   '/:id/share-to',
