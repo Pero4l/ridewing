@@ -418,7 +418,7 @@ export function ChatThread({
             rows={1}
             placeholder="Message"
             maxLength={2000}
-            className="max-h-32 min-h-11 flex-1 resize-none rounded-2xl border border-zinc-200 bg-white px-4 py-2.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-2 focus:outline-offset-0 focus:outline-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+            className="max-h-32 min-h-11 flex-1 resize-none rounded-2xl border border-zinc-200 bg-white px-4 py-2.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none focus:ring-2 focus:ring-zinc-500/40 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
           />
           <Button size="lg" className="h-11! rounded-2xl p-0! w-11!" onClick={send} loading={sendBusy} disabled={!draft.trim()} aria-label="Send">
             <SendIcon size={18} />

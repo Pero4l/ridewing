@@ -68,11 +68,11 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
 
     const offNotification = onSocketEvent<{ id: string }>("notification:new", () => {
       setUnreadCount((count) => count + 1);
-      playNotificationSound();
+      void playNotificationSound();
     });
     const offMessage = onSocketEvent("message:new", () => {
       queueMessageRefresh();
-      playNotificationSound();
+      void playNotificationSound();
     });
     const onVisible = () => {
       if (authed && document.visibilityState === "visible") {

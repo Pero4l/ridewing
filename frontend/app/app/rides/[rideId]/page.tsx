@@ -11,7 +11,7 @@ import { Avatar } from "@/components/avatar";
 import { Badge, Button, Card, EmptyState, PageHeader } from "@/components/ui";
 import { InlineSpinner } from "@/components/spinner";
 import { BackIcon, CheckIcon, HelpIcon, MicIcon, MicOffIcon, StopIcon } from "@/components/icons";
-import { playHelpSound, playSignalSent, playStopSound } from "@/lib/ride-sounds";
+import { playBoundaryAheadSound, playBoundaryBehindSound, playHelpSound, playSignalSent, playStopSound } from "@/lib/ride-sounds";
 import { VerifiedBadge } from "@/components/verified-badge";
 import { bikeLabel, pluralize } from "@/lib/format";
 import type { Peer, Ride, RideRelation } from "@/lib/types";
@@ -30,6 +30,43 @@ type SignalEvent = {
   active: string | null;
 };
 
+/** Ride-level boundary monitor snapshot (lead rider / sweeper limits). */
+type MonitorStatusEvent = {
+  rideId: string;
+  forwardLimited: boolean;
+  rearLimited: boolean;
+  forwardReason: string | null;
+  rearReason: string | null;
+  leadUserId: string | null;
+  sweeperUserId: string | null;
+  updatedAt: string;
+};
+
+type BoundaryAlertEvent = {
+  rideId: string;
+  userId: string;
+  position: string;
+  zone: "ahead" | "behind";
+  distanceMeters: number | null;
+  message: string;
+  renotify: boolean;
+  leadUserId: string | null;
+  sweeperUserId: string | null;
+  forwardLimited: boolean;
+  rearLimited: boolean;
+  at: string;
+};
+
+type BoundaryClearEvent = {
+  rideId: string;
+  userId: string;
+  position: string;
+  zone: string;
+  reason: string;
+  message: string;
+  at: string;
+};
+
 export default function RideDetailPage({ params }: { params: Promise<{ rideId: string }> }) {
   const { rideId } = use(params);
   const router = useRouter();
@@ -46,6 +83,7 @@ export default function RideDetailPage({ params }: { params: Promise<{ rideId: s
   const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState(false);
   const [signalBusy, setSignalBusy] = useState<"help" | "stop" | null>(null);
+  const [monitor, setMonitor] = useState<MonitorStatusEvent | null>(null);
 
   const roomRef = useRef<VoiceRoom | null>(null);
   const activeRef = useRef(false);
@@ -113,8 +151,8 @@ export default function RideDetailPage({ params }: { params: Promise<{ rideId: s
           : current,
       );
       if (userId !== myId) {
-        if (kind === "help") playHelpSound();
-        else playStopSound();
+        if (kind === "help") void playHelpSound();
+        else void playStopSound();
       }
     });
     const offEnded = _onSocketEvent<{ id: string; status: string; reason?: "inactive" }>("ride:ended", (payload) => {
@@ -123,10 +161,29 @@ export default function RideDetailPage({ params }: { params: Promise<{ rideId: s
       exitVoice(false);
       setVoiceMessage(payload.reason === "inactive" ? "Ride ended after being idle too long" : "Ride ended by the creator");
     });
+    const offMonitorStatus = _onSocketEvent<MonitorStatusEvent>("ride:monitor-status", (payload) => {
+      if (payload.rideId !== rideId) return;
+      setMonitor(payload);
+    });
+    const offBoundaryAlert = _onSocketEvent<BoundaryAlertEvent>("ride:boundary-alert", (payload) => {
+      if (payload.rideId !== rideId) return;
+      if (payload.userId !== myId) return;
+      if (payload.zone === "ahead") void playBoundaryAheadSound();
+      else void playBoundaryBehindSound();
+      setVoiceMessage(payload.message);
+    });
+    const offBoundaryClear = _onSocketEvent<BoundaryClearEvent>("ride:boundary-clear", (payload) => {
+      if (payload.rideId !== rideId) return;
+      if (payload.userId !== myId) return;
+      setVoiceMessage(null);
+    });
     return () => {
       offLeft();
       offSignal();
       offEnded();
+      offMonitorStatus();
+      offBoundaryAlert();
+      offBoundaryClear();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rideId, myId, toast]);
@@ -310,7 +367,7 @@ export default function RideDetailPage({ params }: { params: Promise<{ rideId: s
             }
           : current,
       );
-      if (next) playSignalSent();
+      if (next) void playSignalSent();
     } catch (error) {
       toast.error(error instanceof ApiError ? error.message : "Could not send signal");
     } finally {

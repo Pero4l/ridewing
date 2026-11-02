@@ -638,8 +638,14 @@ export class VoiceRoom {
 
   async playPttBeep() {
     // Tiny local cue so the rider knows the channel opened.
+    // iOS Safari starts AudioContexts in the "suspended" state and only releases
+    // them from inside a user gesture — resume before playing or the beep (and
+    // any other tone) silently never happens on iPhone.
     try {
       const audio = new AudioContext();
+      if (audio.state === "suspended") {
+        await audio.resume();
+      }
       const oscillator = audio.createOscillator();
       const gain = audio.createGain();
       oscillator.connect(gain);
